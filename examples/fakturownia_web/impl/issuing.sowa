@@ -1,0 +1,37 @@
+fn read_line(form: LineForm, position: Int(α > 0)) -> Line | IssueError
+  name = form.name as Name or return InvalidLine(position: position, field: LineName)
+  quantity = parse_int(form.quantity) as Quantity or return InvalidLine(position: position, field: LineQuantity)
+  unit_net = parse_money(form.unit_net) as NetPrice or return InvalidLine(position: position, field: LinePrice)
+  vat = read_vat(form.vat) as VatRate or return InvalidLine(position: position, field: LineVat)
+  return Line(name: name, quantity: quantity, unit_net: unit_net, vat: vat)
+
+// Prywatna: stawka VAT z pola formularza.
+fn read_vat(input: String) -> VatRate | NotAVatRate
+  if input == "23"
+    return Vat23
+  if input == "8"
+    return Vat8
+  if input == "5"
+    return Vat5
+  if input == "0"
+    return Vat0
+  return NotAVatRate
+
+fn read_buyer(form: InvoiceForm) -> Buyer | IssueError
+  name = form.buyer_name as Name or return InvalidBuyerName
+  nip = try read_nip(form.buyer_nip)
+  email = form.buyer_email as Email or return InvalidEmail
+  return Buyer(name: name, nip: nip, email: email)
+
+fn issue_invoice(form: InvoiceForm, db: Db, clock: Clock) -> Invoice(α.status == Issued) | IssueError
+  buyer = try read_buyer(form)
+  var lines = []
+  var position = 1
+  for line_form in form.lines
+    line = try read_line(line_form, position)
+    lines = lines + [line]
+    position = position + 1
+  checked = lines as List<Line>(len(α) > 0) or return EmptyInvoice
+  match save_new_invoice(buyer, checked, clock.today(), db)
+    Invoice invoice => return invoice
+    StorageFailed   => return NumberingFailed

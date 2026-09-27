@@ -71,4 +71,4 @@ Przykład używa kilku rzeczy, których nie ma jeszcze w [specyfikacji](../../do
 - transakcje (`db.transaction(tx => ...)`),
 - pełna lista operacji na wbudowanych uprawnieniach (`clock.today()`, `mail.send(...)`),
 - plik `sowa.toml`,
-- w aplikacji webowej: warianty z danymi (`ShowInvoice(number: ...)`), `match` na kilku wartościach i na liście segmentów, `_` w `match`, odczyt formularza przez `as InvoiceForm`, literały `html"..."`, uprawnienie `Server`. Pełna lista w [przemyslenia.md](../../docs/przemyslenia.md#aplikacja-webowa).
+- w aplikacji webowej: `match` na kilku wartościach i na liście segmentów, `_` w `match`, odczyt formularza przez `as InvoiceForm`, literały `html"..."`, uprawnienie `Server`. Pełna lista w [przemyslenia.md](../../docs/przemyslenia.md#aplikacja-webowa).

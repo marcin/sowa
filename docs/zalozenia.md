@@ -68,6 +68,44 @@ Przy wyniku z błędami warunek dotyczy tylko wariantu, przy którym stoi. Nie m
 
 Kompilator próbuje udowodnić warunek wyniku przy każdym `return`. Jeśli nie umie, np. przy `total - total * pct / 100`, wstawia sprawdzenie w runtime i sprawdza ten warunek testami na danych generowanych z typów. `sowa review` pokazuje, które warunki są udowodnione, a które tylko sprawdzane. Niespełniony warunek wyniku to błąd programu, a nie wariant w typie wyniku, bo oznacza błąd w kodzie, a nie w danych.
 
+### Warianty
+
+Typ może mieć kilka wariantów, oddzielonych `|`. Wariant bez danych to sama nazwa, a wariant z danymi ma w nawiasie pola, zawsze z nazwami:
+
+```
+type InvoiceStatus = Issued | SentToKsef(reference: KsefReference, sent_at: DateTime)
+
+type Route = InvoiceList | NewInvoice | CreateInvoice
+  | ShowInvoice(number: InvoiceNumber) | SendToKsef(number: InvoiceNumber) | UnknownPath
+
+type KsefError = KsefRejected(reason: String) | KsefUnavailable
+```
+
+Wartość tworzy się jak rekord, z nazwanymi polami: `ShowInvoice(number: "FV/2026/0042")`. Wariant bez danych to sama nazwa: `Issued`. Długą listę wariantów łamie się przed `|`.
+
+W `match` gałąź wariantu nadaje nazwę całej wartości, a pola czyta się przez kropkę:
+
+```
+match route(req.method, req.path)
+  ShowInvoice r => return get_invoice(r.number, db)
+  SendToKsef r  => return post_ksef(r.number, db, clock, ksef)
+  UnknownPath   => return NotFound(body: not_found_page())
+  ...
+```
+
+Reguły:
+
+- **Pola mają nazwy.** Nie ma pól bez nazw, jak `ShowInvoice(String)` w Ruście. `SentToKsef("KSEF-1", now)` nic nie mówi recenzentowi, a `SentToKsef(reference: "KSEF-1", sent_at: now)` tak.
+- **Nazwę pomija się, gdy gałąź jej nie używa:** `SentToKsef => return "w KSeF"`. Nieużywana nazwa to błąd, tak jak przy zmiennych.
+- **Gałąź może mieć blok.** Pod `=>` stoi wtedy blok z wcięciem, zakończony `return`, tak jak po `or`.
+- **Nie ma rozkładania na pola w `match`.** Zamiast `ShowInvoice(number: n) =>` jest `ShowInvoice r =>` i `r.number`. To ten sam zapis co przy rekordach i błędach (`Receipt r => return r`).
+- **Pola mogą mieć warunki**, tak jak parametry: `Redirect(to: String(starts_with(α, "/")))` nie przepuści przekierowania na inną domenę.
+- **Warunek może dotyczyć wariantu.** Dla wariantu bez danych wystarczy `==`: `Invoice(α.status == Issued)`. Dla wariantu z danymi jest `is`: `Invoice(α.status is SentToKsef)`, tak jak w `if input is not Percent`.
+- **Nazwa wariantu jest unikalna w projekcie.** Tworzenie wartości i `match` używają samej nazwy, bez `Route.`, więc dwa typy z wariantem `NotFound` to błąd kompilacji.
+- **Błędy to też warianty**, więc mogą nieść dane: `KsefRejected(reason: String)`.
+- **Gałąź może objąć całą unię, jeśli ta ma nazwę.** `IssueError e => ...` obsługuje wszystkie warianty `IssueError`. Nowy wariant w `IssueError` nie psuje tej gałęzi, ale psuje każdy `match`, który rozpisuje jego warianty, np. w funkcji z komunikatami dla użytkownika.
+- **`as` zawęża unię.** `invoice = find_invoice(number, db) as Invoice or return NotFound(...)` zostawia tylko wariant `Invoice`, a `invoice as Invoice(α.status == Issued) or ...` sprawdza przy tym warunek.
+
 ### Zmienne: bez `let`, z `var`
 
 Domyślnie każda nazwa jest niezmienna i nie ma słowa kluczowego. Tylko zmienne, które się zmieniają, oznacza się `var`.
@@ -188,6 +226,47 @@ fn main(db: Db, clock: Clock, mail: Mailer)
 
 Nie ma osobnej listy „który plik może mieć jakie uprawnienia”. Pokazują to sygnatury w `src/`: jeśli żadna funkcja w `src/invoice.sowa` nie ma uprawnień, cały moduł jest czysty, razem z funkcjami pomocniczymi w `impl/`, bo nie mają skąd ich dostać.
 
+#### Zasoby w testach: `[resources.test]`
+
+Przykład funkcji z uprawnieniem potrzebuje bazy, zegara albo serwera. `sowa test` bierze je z `[resources.test]`:
+
+```toml
+[resources.test]
+db    = { type = "Db", url = "memory" }
+clock = { type = "Clock", now = "2026-09-27T10:00:00" }
+ksef  = { type = "Http", fake = "ksef_fake" }
+```
+
+```
+fn issue_invoice(form: InvoiceForm, db: Db, clock: Clock) -> Invoice(α.status == Issued) | IssueError
+  example
+    line = LineForm(name: "Usługa", quantity: "1", unit_net: "100", vat: "23")
+    form = InvoiceForm(buyer_name: "Firma", buyer_nip: "123-456-32-18", buyer_email: "biuro@firma.pl", lines: [line])
+    invoice = try issue_invoice(form, db, clock)
+    invoice.number == "FV/2026/0001"
+```
+
+| Typ | W `[resources.test]` |
+|---|---|
+| `Db`, `DbRead` | `url = "memory"`: pusta baza w pamięci |
+| `Clock` | `now = "..."`: stały czas |
+| `Random` | `seed = 1`: te same liczby przy każdym uruchomieniu |
+| `Log` | zawsze w pamięci |
+| `Mailer` | `server = "memory"`: wiadomości nigdzie nie wychodzą |
+| `Http` | `fake = "nazwa_funkcji"`: atrapa serwera (zob. niżej) |
+| `Files` | `dir = "memory"`: pusty katalog w pamięci |
+
+Reguły:
+
+- **W przykładzie nazwa uprawnienia to zasób testowy.** `db` w przykładzie to baza z `[resources.test]`. W `property` tak samo: dane generuje się tylko dla zwykłych parametrów.
+- **Każdy przykład dostaje świeże zasoby.** Pusta baza i zegar ustawiony na `now`, także dla każdego przypadku w `property`. Przykłady nie zależą od siebie ani od kolejności, więc `FV/2026/0001` jest zawsze pierwszym numerem.
+- **Przykład może mieć kilka linii.** Samo słowo `example`, a pod nim blok z wcięciem, jak przy `desc`. Linia, która nie jest przypisaniem, jest sprawdzeniem, a test przechodzi, gdy wszystkie są prawdziwe. `try` przy błędzie kończy test porażką i pokazuje ten błąd. Tak samo działa blok `sowa` w `.md`. Limit długości to `example_lines`.
+- **Atrapa zewnętrznego serwera to czysta funkcja.** `fake = "ksef_fake"` wskazuje funkcję z `src/` bez uprawnień: `fn ksef_fake(req: HttpRequest) -> HttpResponse`. Jest czysta, więc to samo zapytanie daje zawsze tę samą odpowiedź.
+- **Atrapa to specyfikacja, a nie kod.** Zapisuje założenia o cudzym serwerze, a testy przechodzą tylko wobec tych założeń. Atrapa, która wszystko przyjmuje, ułatwiłaby agentowi testy, więc `sowa check` wymaga, żeby plik z jej ciałem w `impl/` był w CODEOWNERS i nie był zwinięty w PR.
+- **Te same nazwy i typy co w `[resources]`.** Zasób testowy innego typu to błąd kompilacji. Brak zasobu testowego to błąd tylko wtedy, gdy potrzebuje go jakiś przykład.
+- **Testy i program nie dzielą zasobów.** `sowa test` nigdy nie używa `[resources]`, a `sowa run` nigdy nie używa `[resources.test]`. W testach runtime nie dostaje żadnego adresu w `--allow-net`, więc test nie połączy się z prawdziwym serwerem nawet przez pomyłkę.
+- **Zmiana zasobu testowego albo atrapy zmienia istniejące testy**, więc `sowa review` pokazuje ją w kategorii „usunięty test”.
+
 #### Funkcje przyjmujące funkcje
 
 Lambda może użyć uprawnienia z otoczenia:
@@ -285,7 +364,7 @@ Kategorie mają stałą kolejność i nie wymagają konfiguracji:
 |---|---|---|
 | uprawnienie | funkcja dostaje nowe uprawnienie; nowy albo zmieniony zasób w `[resources]` | kod może zrobić coś, czego wcześniej nie mógł |
 | osłabienie | luźniejszy warunek w definicji typu albo w wyniku; nowy wariant błędu w wyniku | gwarancje, na których polega reszta programu, są słabsze |
-| usunięty test | usunięty albo zmieniony `example`, `property` lub blok `sowa` w `.md` | agent mógł dopasować test do kodu |
+| usunięty test | usunięty albo zmieniony `example`, `property` lub blok `sowa` w `.md`; zmieniony zasób w `[resources.test]` albo atrapa | agent mógł dopasować test do kodu |
 | rozszerzenie | luźniejszy warunek na parametrze | funkcja przyjmuje więcej danych; to widać, ale niczego nie psuje |
 | zwykłe | reszta: nowy przykład, nowa czysta funkcja, zmiana `desc` | |
 
@@ -499,4 +578,5 @@ Te pomysły padły, ale nie są jeszcze rozpisane. Szczegóły w [przemyslenia.m
 - pochodzenie kodu (`@origin(agent: ..., reviewed: false)`) i polityki wdrożeń
 - procesy z supervisorem i obserwowalnym stanem, w stylu Erlanga
 - kompilacja do kodu maszynowego: kierunek to liczenie referencji jak w Koce i Roc, bez borrow checkera
-- aplikacja webowa: serwer, formularze, HTML (szkic w [invoices](../examples/invoices/src/web.sowa))
+- aplikacja webowa: serwer, formularze, HTML (przykład [fakturownia_web](../examples/fakturownia_web/))
+- kod użytkowników w Sowie kompilowany na serwerze albo do WASM: bezpieczny, bo kod bez uprawnień jest czysty

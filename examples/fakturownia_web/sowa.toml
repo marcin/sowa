@@ -1,0 +1,24 @@
+# Katalog główny projektu Sowa. Ścieżki po doc i why liczą się od katalogu docs.
+[project]
+name = "fakturownia_web"
+src  = "src"    # specyfikacja: typy, sygnatury z uprawnieniami, opisy, przykłady
+impl = "impl"   # ciała funkcji; pilnują ich kompilator, testy i uprawnienia
+docs = "docs"
+
+# Zasoby, które runtime przekazuje do main według nazwy parametru:
+# fn main(db: Db, clock: Clock, ksef: Http, web: Server). Innych uprawnień program
+# nie ma. Adresy z db, ksef i web to jedyne połączenia sieciowe, na które pozwala runtime.
+# Podawanie sekretów (token_env) to jeszcze otwarte pytanie.
+[resources]
+db    = { type = "Db", url = "postgres://localhost/fakturownia" }
+clock = { type = "Clock" }
+ksef  = { type = "Http", url = "https://ksef.pl/api", token_env = "KSEF_TOKEN" }
+web   = { type = "Server", listen = "0.0.0.0:8080" }
+
+# Zasoby dla sowa test: świeże przy każdym przykładzie, bez żadnego połączenia z siecią.
+# ksef_fake to czysta funkcja z src/ksef_fake.sowa; jej ciało człowiek czyta.
+# main nie ma przykładów, więc web nie ma odpowiednika testowego.
+[resources.test]
+db    = { type = "Db", url = "memory" }
+clock = { type = "Clock", now = "2026-09-27T10:00:00" }
+ksef  = { type = "Http", fake = "ksef_fake" }

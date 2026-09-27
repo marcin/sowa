@@ -1,0 +1,23 @@
+desc Zapis i odczyt faktur w bazie. Numer nadaje się w tej samej transakcji co zapis.
+why zalozenia.md#numeracja
+why zalozenia.md#uprawnienia
+
+type StorageError = StorageFailed
+type LookupError  = NoInvoice
+
+fn save_new_invoice(buyer: Buyer, lines: List<Line>(len(α) > 0), issued_on: Date, db: Db)
+    -> Invoice(α.status == Issued) | StorageError
+  desc Nadaje kolejny numer w roku i zapisuje fakturę. Przy błędzie numer nie zostaje zużyty.
+  why zalozenia.md#numeracja
+
+fn find_invoice(number: InvoiceNumber, db: DbRead) -> Invoice | LookupError
+  example find_invoice("FV/2026/0001", db) == NoInvoice
+
+fn list_invoices(db: DbRead) -> List<Invoice>
+  desc Wszystkie faktury, od najnowszej.
+
+  example list_invoices(db) == []
+
+// Warunek w parametrze: status zmienia się tylko z Issued na SentToKsef, nigdy odwrotnie.
+fn mark_sent(invoice: Invoice(α.status == Issued), reference: KsefReference, sent_at: DateTime, db: Db)
+    -> Invoice(α.status is SentToKsef)

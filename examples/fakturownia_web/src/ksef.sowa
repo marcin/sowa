@@ -1,0 +1,41 @@
+desc Wysyłka faktur do KSeF (ksef.pl). Format: JSON z polami KsefInvoice.
+why decyzje/001-ksef-osobnym-krokiem.md
+why zalozenia.md#uprawnienia
+
+type KsefInvoice
+  desc Faktura w formacie ksef.pl. Nazwy pól to nazwy w JSON-ie.
+
+  number: InvoiceNumber
+  issued_on: Date
+  buyer_name: Name
+  buyer_nip: Nip
+  lines: List<KsefLine>
+  net: Money
+  vat: Money
+  gross: Money
+
+type KsefLine
+  name: Name
+  quantity: Quantity
+  unit_net: NetPrice
+  vat_percent: Int(α >= 0 && α <= 23)
+
+type KsefAnswer
+  desc Odpowiedź ksef.pl na przyjętą fakturę.
+
+  reference: KsefReference
+
+type KsefError = KsefRejected(reason: String) | KsefUnavailable
+
+fn to_ksef(invoice: Invoice) -> KsefInvoice(α.gross == α.net + α.vat && α.number == invoice.number)
+  desc Zamienia fakturę na format ksef.pl. Sumy liczy {totals}.
+
+  property to_ksef(invoice).net == totals(invoice.lines).net
+
+// Jedyna funkcja z ksef: Http. Wysłać można tylko fakturę w statusie Issued,
+// a wynik to faktura w statusie SentToKsef z numerem z KSeF.
+fn send_to_ksef(invoice: Invoice(α.status == Issued), ksef: Http, db: Db, clock: Clock)
+    -> Invoice(α.status is SentToKsef) | KsefError
+  doc uzytkownik/faktury.md#wysyłka-do-ksef
+  why decyzje/001-ksef-osobnym-krokiem.md
+  why decyzje/002-ponowna-wysylka.md

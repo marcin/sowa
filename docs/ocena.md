@@ -26,7 +26,10 @@ Po poprzedniej ocenie zmieniło się pięć rzeczy: uprawnienia jako parametry z
 2. sprawdzanie uprawnień: nie da się ich utworzyć, płyną tylko przez parametry, `impl/` ma te same sygnatury co `src/`,
 3. `sowa review --base main` z kategoriami, na początek z solverem tylko dla arytmetyki liniowej,
 4. `sowa check --ci` z odczytem zatwierdzenia z API GitHuba,
-5. tłumaczenie `example`, `property` i bloków `sowa` do TypeScripta i uruchamianie ich, warunki wyniku na razie tylko w runtime.
+5. tłumaczenie `example`, `property` i bloków `sowa` do TypeScripta i uruchamianie ich na zasobach z `[resources.test]`, warunki wyniku na razie tylko w runtime,
+6. próba całości na [fakturownia_web](../examples/fakturownia_web/): czy wynik `sowa review` z [PR.md](../examples/fakturownia_web/PR.md) da się wygenerować i czy człowiek faktycznie zatwierdza z niego, a nie z diffu.
+
+Na później: kod użytkowników w Sowie. Klient aplikacji pisze np. własną regułę rabatu, a serwer kompiluje ją i uruchamia albo kompiluje do WASM. Funkcja bez uprawnień jest czysta, więc typ gwarantuje, że kod nie sięga do bazy, sieci ani plików. Wymaga limitów czasu i pamięci oraz ograniczonego solvera ([szkic](przemyslenia.md#szkice-na-później)).
 
 ## Aktualizacja: po dokumentacji i zatwierdzaniu (27.09.2026)
 

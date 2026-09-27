@@ -1,0 +1,5 @@
+desc Punkt wejścia: jedyne miejsce, w którym program dostaje uprawnienia.
+why zalozenia.md#uprawnienia
+
+fn main(db: Db, clock: Clock, ksef: Http, web: Server)
+  desc Uruchamia serwer faktur. Runtime przekazuje uprawnienia według [resources] w sowa.toml.

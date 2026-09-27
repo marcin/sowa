@@ -1,0 +1,58 @@
+desc Faktura, jej numer, status i sumy.
+why zalozenia.md#kwoty
+why zalozenia.md#numeracja
+
+type InvoiceNumber = String(matches(α, "^FV/[0-9]{4}/[0-9]{4,}$"))
+  desc Numer faktury w formacie FV/rok/kolejny numer, np. FV/2026/0042.
+
+type KsefReference = String(starts_with(α, "KSEF-"))
+  desc Numer, który ksef.pl nadaje przyjętej fakturze.
+
+type Line
+  desc Jedna pozycja na fakturze.
+
+  name: Name
+  quantity: Quantity
+  unit_net: NetPrice
+  vat: VatRate
+
+type Buyer
+  name: Name
+  nip: Nip
+  email: Email
+
+// Wariant z danymi: numer z KSeF i czas wysyłki istnieją tylko po wysłaniu,
+// więc faktura w statusie Issued nie ma pustego pola „reference”.
+type InvoiceStatus = Issued | SentToKsef(reference: KsefReference, sent_at: DateTime)
+  doc uzytkownik/faktury.md#wysyłka-do-ksef
+
+type Invoice
+  doc uzytkownik/faktury.md#wystawianie-faktury
+
+  number: InvoiceNumber
+  buyer: Buyer
+  lines: List<Line>(len(α) > 0)
+  issued_on: Date
+  status: InvoiceStatus
+
+type Totals
+  net: Money
+  vat: Money
+  gross: Money
+
+fn format_number(year: Int(α >= 2000 && α <= 9999), seq: Int(α > 0)) -> InvoiceNumber
+  example format_number(2026, 42) == "FV/2026/0042"
+  example format_number(2026, 12345) == "FV/2026/12345"
+
+fn line_net(line: Line) -> Money(α >= 0)
+  desc Wartość netto pozycji, zaokrąglona do grosza.
+
+  example line_net(Line(name: "Usługa", quantity: 3, unit_net: 33.33, vat: Vat23)) == 99.99
+
+fn totals(lines: List<Line>(len(α) > 0)) -> Totals(α.gross == α.net + α.vat)
+  desc Sumy netto, VAT i brutto. VAT liczy się od sumy netto w każdej stawce.
+  doc uzytkownik/faktury.md#sumy
+
+  example totals([Line(name: "Usługa", quantity: 1, unit_net: 100, vat: Vat23)])
+    == Totals(net: 100, vat: 23, gross: 123)
+  property totals(lines).net == sum(lines.map(l => line_net(l)))
