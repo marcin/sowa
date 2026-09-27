@@ -193,13 +193,35 @@ Ogólna lekcja: skróty w stylu Ruby'ego sprawdzają się w zwykłym kodzie, ale
   - limit pracy solvera w jednostkach, a nie w sekundach (jak `--resource-limit` w Dafny), żeby wynik buildu nie zależał od szybkości maszyny. Po przekroczeniu limitu warunek sprawdza runtime, a `sowa review` to pokazuje.
 
   Realistyczny cel: kompilacja jak w Go, a działanie blisko Swifta albo Roca. W ciasnych pętlach liczbowych Sowa będzie wolniejsza od Rusta o koszt liczników. Kolejność: najpierw backend do TypeScriptu i Deno (szybko do działania, gotowe `--allow-net`), własny backend dopiero, gdy język się ustabilizuje.
+- **Kompilator najpierw w Ruście, potem w Sowie.** Kompilator potrzebuje parsera, sprawdzania typów z warunkami, solvera, backendu TS, później WASM i szybkiego backendu w pracy, a do tego LSP.
+
+  | Język | Ocena |
+  |---|---|
+  | TypeScript/Deno | najszybciej do prototypu, pierwszy backend i tak generuje TS, LSP w VS Code prawie za darmo; ale trudno o kompilację jak w Go, Z3 tylko przez WASM, brak Cranelift i wasmtime |
+  | OCaml | klasyczny język do kompilatorów (pierwszy kompilator Rusta, Flow, Hack), `.mli`/`.ml` to `src/`/`impl/`, oficjalne bindingi Z3; mniejszy ekosystem, WASM i Cranelift do dorobienia |
+  | Go | szybka kompilacja, tą drogą idzie TypeScript 7; brak typów sumowych, więc drzewo składni to interfejsy i `switch` na typie, co źle przekłada się na Sowę |
+  | Zig, Haskell | Roc przeszedł z Rusta na Ziga, Haskell dobrze nadaje się do sprawdzania typów; Zig jest jeszcze niestabilny, a Haskella zna mało osób |
+  | **Rust** | **wybrane**: warianty i `match` mają ten sam kształt co w Sowie, więc przepisanie kompilatora na Sowę to prawie tłumaczenie 1:1; biblioteki z planu są w Ruście: `z3` (solver), `cranelift` (backend w pracy), `wasmtime` ([kod użytkowników](#kod-użytkowników)), `salsa` (kompilacja przyrostowa jak w rust-analyzer); Gleam przeszedł podobną drogę: kompilator w Ruście generuje JS |
+
+  Koszt: wolniejsze pisanie na początku i borrow checker.
+
+  Droga do kompilatora w Sowie:
+
+  1. Etap 0 w Ruście: parser, sprawdzanie uprawnień, `sowa review`, backend TS.
+  2. Kompilator w Sowie jako zwykły projekt Sowy (`src/`, `impl/`, `sowa.toml`). To najlepszy test języka: kompilator dostaje tylko `files: Files`, więc z sygnatury widać, że niczego nie wysyła do sieci, a jego zmiany recenzuje `sowa review`.
+  3. Bootstrap: etap 0 kompiluje kompilator w Sowie (etap 1), etap 1 kompiluje sam siebie (etap 2), a etapy 1 i 2 muszą dać identyczny wynik.
+  4. Kompilator w Ruście zostaje wzorcem, dopóki wersja w Sowie nie przejdzie wszystkich testów, a potem się go zamraża. Go zrobił to w wersji 1.5, przechodząc z C na Go.
+
+  Przed przepisaniem Sowa potrzebuje generyków, słowników (`Map`), modułów, `Files` i liczenia referencji z modyfikacją w miejscu. Bez tego ostatniego każda zmiana w drzewie składni kopiuje całość.
+
+  Nie przepisywać za wcześnie: przy każdej zmianie składni trzeba wtedy poprawiać dwa kompilatory i łańcuch bootstrapu. Rust przepisał kompilator na siebie po około 5 latach, Go po 3. Dobry moment to chwila, gdy specyfikacja przestanie się zmieniać co tydzień.
 - **Ruby: składnia tak, semantyka nie.** Z Ruby'ego warto wziąć brak średników i lekkość zapisu. Nie bierzemy monkey-patchingu, `method_missing`, metaprogramowania ani DSL-i, w których nie wiadomo, skąd bierze się metoda. Tą drogą poszły już Elixir (składnia z Ruby'ego, semantyka z Erlanga) i Crystal.
 - **Jawne zamiast skrótów:**
   - `unless x` → `if not x`
   - `users.map(&:email)` → `users.map(u => u.email)`
   - `cache ||= load()` → jawny `if`
   - `user&.email` → `match` albo typ bez `nil`
-  - `3.days.ago` → `now() - days(3)`
+  - `3.days.ago` → `clock.now() - days(3)`
 
 ## Jak to robią inni
 
@@ -273,6 +295,64 @@ Poza próbą zostały: wydajność serwera, strumieniowanie, WebSockety i przesy
 
 Warianty z danymi, blok po `=>` i `[resources.test]` są już w specyfikacji. Następny krok: `match` na listach i `_`, a potem biblioteka standardowa (`html"..."`, odczyt formularza i JSON, API bazy, `Server`, `Http`).
 
+## Kod użytkowników
+
+Pomysł na później: klient aplikacji pisze w Sowie własną regułę, np. rabat, a serwer ją kompiluje i uruchamia albo kompiluje do WASM. Pytanie: czy łatwo dodać to jako opcję kompilatora?
+
+Wniosek: dostęp do bazy, sieci i plików Sowa blokuje prawie za darmo, bo uprawnień nie da się utworzyć w kodzie. Pętli bez końca, zużycia pamięci i błędu w samym kompilatorze typy nie powstrzymają. To wymaga backendu WASM z limitami.
+
+### Tryb `--sandbox`
+
+```
+sowa build --sandbox --api host/src --target wasm user/impl
+```
+
+Gospodarz daje `src/`, a użytkownik pisze `impl/`. Podział na specyfikację i kod jest więc gotowym interfejsem wtyczek:
+
+```
+fn discount_rule(order: Order) -> Percent
+  desc Rabat dla zamówienia, reguła klienta.
+
+  example discount_rule(Order(items: [], total: 0)) == 0
+```
+
+Kompilator w tym trybie:
+
+- sprawdza, że `impl/` ma dokładnie te sygnatury co `src/` gospodarza, jak przy zwykłym projekcie,
+- nie przyjmuje `main` ani `[resources]`, więc uprawnienia przychodzą tylko od gospodarza, przez parametry, np. `log: Log`,
+- nie przyjmuje `extern fn`, bo kod spoza Sowy to jedyna droga obok uprawnień,
+- sprawdza warunki wyniku w runtime tam, gdzie ich nie udowodni: użytkownik nie zwróci rabatu 150%, bo wynik to `Percent`,
+- uruchamia przykłady gospodarza jako testy kodu użytkownika.
+
+Warunek po stronie języka: biblioteka standardowa nie ma żadnej globalnej funkcji z efektem. Czas daje tylko `clock: Clock`, losowość tylko `random: Random`.
+
+Po stronie kompilatora to kilka dni pracy, gdy działa już sprawdzanie uprawnień.
+
+### Czego typy nie dadzą
+
+| Zagrożenie | Co pomaga | Uwagi |
+|---|---|---|
+| pętla bez końca, głęboka rekursja | limit pracy (fuel) i czasu | pętla bez końca też jest czysta; w wasmtime to konfiguracja (fuel, epoch interruption) |
+| zużycie pamięci | limit pamięci instancji WASM | w backendzie TS tylko przez osobny proces albo worker |
+| kompilator jako cel ataku | limit pracy solvera w jednostkach (już w planie), limity dla parsera i sprawdzania typów | głębokie zagnieżdżenia i duże generyki mogą zablokować kompilację |
+| błąd w sprawdzaniu uprawnień | WASM bez importów albo tylko z importami od gospodarza | kod fizycznie nie wykona wejścia-wyjścia, nawet przy błędzie kompilatora |
+| wyciek danych w wyniku | gospodarz przekazuje tylko dane, które użytkownik może zobaczyć | czysta funkcja nadal może zwrócić to, co dostała |
+| nadużycie uprawnień od gospodarza | limity po stronie gospodarza, np. liczba wpisów w `log` | typ mówi, co kod może, a nie ile razy |
+
+Właściwą granicą jest WASM bez importów. Typy są drugą warstwą: użytkownik dostaje czytelny błąd od razu, np. „ta funkcja nie ma `Http`”, zamiast awarii przy uruchomieniu.
+
+### Backend
+
+| Wariant | Ocena |
+|---|---|
+| backend TS w tym samym procesie co gospodarz | odrzucone: obcy kod w V8 w jednym procesie to nie piaskownica |
+| backend TS w osobnym workerze Deno bez uprawnień, z timeoutem | wystarczy na reguły pisane przez własnych klientów; za słabe przy wrogim kodzie od wielu klientów naraz |
+| **WASM bez importów, z limitem fuel i pamięci** | **kierunek**: granica niezależna od kompilatora; działa na serwerze i w przeglądarce |
+
+Backend TS ma powstać pierwszy, więc przez jakiś czas tryb `--sandbox` da tylko sprawdzenie w kompilatorze i worker. Pełna gwarancja przyjdzie z backendem WASM.
+
+Dodatkowa zaleta: kod bez `Clock` i `Random` jest deterministyczny. Wynik można cache'ować, a zgłoszony błąd odtworzyć na tych samych danych.
+
 ## Szkice na później
 
 ```
@@ -293,11 +373,6 @@ process InvoiceWorker supervised(restart: 3/min)
   state: Queue<InvoiceId> observable
 ```
 Izolowane procesy z supervisorem. Stan `observable` jest odpytywalny na żywo.
-
-```
-fn discount_rule(order: Order) -> Percent
-```
-Kod użytkowników w Sowie. Klient aplikacji pisze własną regułę, np. rabat, a serwer ją kompiluje i uruchamia, albo kompiluje ją do WASM. Funkcja bez uprawnień jest czysta, więc sam typ gwarantuje, że kod nie czyta bazy, nie łączy się z siecią i nie czyta plików. Gospodarz podaje tylko te uprawnienia, które chce, np. `log: Log`. WASM bez importów daje to samo w przeglądarce. Do ustalenia: limit czasu i pamięci (pętla bez końca też jest czysta), ograniczony solver, żeby kompilacja nie była atakiem, i czy użytkownik widzi błędy kompilatora po polsku.
 
 ## Otwarte pytania
 
@@ -336,8 +411,8 @@ Kod użytkowników w Sowie. Klient aplikacji pisze własną regułę, np. rabat,
   - `Secret` / `Pii` dla danych wrażliwych: typ opakowujący czy etykieta na polu?
   - zasoby dla bazy: `Db` zawężony do jednej tabeli?
   - czy `impl/` musi powtarzać sygnatury, czy wystarczy sama nazwa funkcji?
-- **Kompilacja:** kiedy własny backend zamiast TypeScriptu? Czy liczenie referencji wystarczy przy bibliotekach spoza Sowy, które mogą tworzyć cykle? Jaki domyślny limit pracy solvera?
+- **Kompilacja:** kiedy własny backend zamiast TypeScriptu? Czy liczenie referencji wystarczy przy bibliotekach spoza Sowy, które mogą tworzyć cykle? Jaki domyślny limit pracy solvera? Po czym poznać, że język jest dość stabilny, żeby przepisać kompilator na Sowę? Czy etap 0 w Ruście utrzymywać dalej, np. do bootstrapu na nowej platformie?
 - **Aplikacja webowa:** luki z [próby](#aplikacja-webowa): `match` na listach i `_`, odczyt formularza i JSON, `html"..."`, `Server`, typy `HttpRequest` i `HttpResponse`, zapytania do bazy, sesje.
-- **Kod użytkowników:** czy kompilacja cudzego kodu Sowy na serwerze albo do WASM to osobny tryb kompilatora (bez `main`, bez `[resources]`, z limitami)? Zob. [szkice](#szkice-na-później).
+- **Kod użytkowników:** czy kompilacja cudzego kodu Sowy na serwerze albo do WASM to osobny tryb kompilatora (bez `main`, bez `[resources]`, z limitami)? Czy pierwszy backend (TS) wystarczy do czasu WASM? Jakie domyślne limity fuel i pamięci? Czy użytkownik widzi błędy kompilatora po polsku? Zob. [Kod użytkowników](#kod-użytkowników).
 - **Komentarze:** `//` czy `--`? (Nie `#`.)
 - **Rozszerzenie plików:** `.sowa`.
