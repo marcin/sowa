@@ -3,3 +3,4 @@ compiler/target/
 *.db
 *.db-shm
 *.db-wal
+.DS_Store

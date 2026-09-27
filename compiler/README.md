@@ -31,7 +31,8 @@ sowa build --rust / run --rust     # program w Ruście: KATALOG/.sowa/app_rs
 | `src/check.rs` | reguły projektu (niżej) |
 | `src/codegen.rs` | JavaScript: typy jako opisy w runtime, funkcje jako `async function`, testy |
 | `src/runtime.js` | runtime doklejany na początek programu: wartości, typy, JSON, formularze, baza, HTTP, serwer, testy |
-| `src/codegen_rs.rs` | Rust dla `sowa test --rust`: funkcje jako `fn(V) -> R`, błędy przez `?`, lambdy jako domknięcia |
+| `src/codegen_rs.rs` | Rust dla `sowa test --rust` i `sowa build --rust`: typy znane w kompilacji jako typy Rusta (`i64`, `Rc<str>`, `Rc<Vec<T>>`, `struct`), reszta jako dynamiczne `V`; błędy przez `?`, lambdy jako domknięcia |
+| `src/moves.rs` | analiza dla backendu Rust: który odczyt zmiennej jest ostatni i może przenieść wartość zamiast ją klonować |
 | `src/runtime.rs` | runtime dla Rusta, doklejany na początek `test_rs.rs` (nie jest modułem crate'a): te same wartości, typy, JSON, baza przez FFI do SQLite, generator property i raport |
 
 ## Co sprawdza `sowa check`

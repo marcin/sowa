@@ -8,7 +8,7 @@ Przy tym samym ziarnie program wypisuje co do bajta to samo co
 ttfx --seed N --frame-rate 0 --ignore-terminal-dimensions decrypt
 ```
 
-Dzięki temu da się porównać szybkość samego języka, bo oba programy robią dokładnie tę samą pracę. Wynik: Sowa → Rust jest ok. 22× wolniejsza od ttfx, czyli od Rusta pisanego ręcznie, a Sowa → Bun ok. 48× wolniejsza. Szczegóły i sposób powtórzenia pomiaru są w [docs/porownanie.md](docs/porownanie.md).
+Dzięki temu da się porównać szybkość samego języka, bo oba programy robią dokładnie tę samą pracę. Wynik na wejściu z 60 wierszy: Sowa → Rust liczy 53 ms, a ttfx, czyli Rust pisany ręcznie, 59 ms, przy połowie pamięci. Na wejściu 4 razy większym Sowa → Rust jest ok. 12% wolniejsza. Sowa → Bun jest ok. 42× wolniejsza od ttfx. Szczegóły i sposób powtórzenia pomiaru są w [docs/porownanie.md](docs/porownanie.md).
 
 ## Uruchomienie
 

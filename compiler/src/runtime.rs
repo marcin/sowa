@@ -50,6 +50,7 @@ pub enum V {
     Fn(Rc<dyn Fn(V) -> R>),
 }
 
+#[derive(Clone)]
 pub struct Obj {
     pub n: &'static str,
     pub f: Vec<(&'static str, V)>,
@@ -57,7 +58,10 @@ pub struct Obj {
 
 impl Obj {
     fn get(&self, k: &str) -> Option<&V> {
-        self.f.iter().find(|(n, _)| *n == k).map(|(_, v)| v)
+        match self.f.iter().find(|(n, _)| std::ptr::eq(n.as_ptr(), k.as_ptr()) && n.len() == k.len()) {
+            Some((_, v)) => Some(v),
+            None => self.f.iter().find(|(n, _)| *n == k).map(|(_, v)| v),
+        }
     }
 }
 
@@ -848,19 +852,50 @@ pub fn mkv(n: &'static str, given: Vec<(&'static str, V)>) -> R {
     let Some(fs) = vfields(n) else { return terr(format!("{} nie ma pól", n)) };
     Ok(V::Var(Rc::new(Obj { n, f: build(n, &fs, given)? })))
 }
+// Pozostałe pola były sprawdzone przy budowie rekordu, więc sprawdza tylko zmienione.
+// Rekord bez innych referencji zmienia w miejscu.
 pub fn with(v: V, upd: Vec<(&'static str, V)>) -> R {
-    let (o, rec) = match &v {
+    let (mut o, rec) = match v {
         V::Rec(o) => (o, true),
         V::Var(o) if !o.f.is_empty() => (o, false),
-        _ => return terr(format!("with działa na rekordzie, a dostał {}", show(&v))),
+        v => return terr(format!("with działa na rekordzie, a dostał {}", show(&v))),
     };
-    let mut fs: Vec<(&'static str, V)> = o.f.iter().filter(|(k, _)| !upd.iter().any(|(u, _)| u == k)).cloned().collect();
-    fs.extend(upd);
-    if rec { mk(o.n, fs) } else { mkv(o.n, fs) }
+    let n = o.n;
+    let (t, vf);
+    let fs: &Fields = if rec {
+        t = lookup(n)?;
+        match &*t {
+            Ty::Rec(_, fs) => fs,
+            _ => return terr(format!("{} nie jest rekordem", n)),
+        }
+    } else {
+        vf = vfields(n);
+        match &vf {
+            Some(fs) => fs,
+            None => return terr(format!("{} nie ma pól", n)),
+        }
+    };
+    let obj = Rc::make_mut(&mut o);
+    for (k, x) in upd {
+        let Some(i) = obj.f.iter().position(|(f, _)| *f == k) else { return terr(format!("{} nie ma pola {}", n, k)) };
+        let Some((_, fd)) = fs.iter().find(|(f, _)| *f == k) else { return terr(format!("{} nie ma pola {}", n, k)) };
+        obj.f[i].1 = conform(fd, x, &Wh::Field(n, k))?;
+    }
+    Ok(if rec { V::Rec(o) } else { V::Var(o) })
+}
+
+// Ostatni odczyt zmiennej: wartość przechodzi dalej bez klonu (zob. moves.rs w kompilatorze).
+#[inline]
+pub fn mv(x: &mut V) -> V {
+    std::mem::replace(x, V::Unit)
 }
 
 pub fn field(o: V, name: &str) -> R {
-    let got = match &o {
+    field_ref(&o, name)
+}
+
+pub fn field_ref(o: &V, name: &str) -> R {
+    let got = match o {
         V::Date(y, m, d) => match name {
             "year" => Some(V::Int(*y)),
             "month" => Some(V::Int(*m)),
@@ -881,7 +916,7 @@ pub fn field(o: V, name: &str) -> R {
     };
     match got {
         Some(v) => Ok(v),
-        None => terr(format!("{} nie ma pola {}", show(&o), name)),
+        None => terr(format!("{} nie ma pola {}", show(o), name)),
     }
 }
 
@@ -1941,20 +1976,20 @@ impl Xoshiro {
 
 // Terminal: stdout z buforem, opróżnianym co 64 KB, przy exit i na końcu run_main.
 thread_local! {
-    static OUT: RefCell<Vec<u8>> = RefCell::new(Vec::with_capacity(1 << 17));
+    static OUT: RefCell<String> = RefCell::new(String::with_capacity(1 << 17));
 }
 fn out_flush() {
     use std::io::Write;
     OUT.with(|o| {
         let mut o = o.borrow_mut();
-        let _ = std::io::stdout().lock().write_all(&o);
+        let _ = std::io::stdout().lock().write_all(o.as_bytes());
         o.clear();
     });
 }
 fn out_write(t: &str) {
     let full = OUT.with(|o| {
         let mut o = o.borrow_mut();
-        o.extend_from_slice(t.as_bytes());
+        o.push_str(t);
         o.len() > 1 << 16
     });
     if full {
@@ -2143,6 +2178,19 @@ fn mkres(sp: &Spec) -> R {
 pub fn call(o: V, name: &str, pos: Vec<V>, named: Vec<(&'static str, V)>, targs: Vec<T>, line: usize) -> R {
     let arg = |i: usize, key: &str| -> V {
         named.iter().find(|(k, _)| *k == key).map(|(_, v)| v.clone()).or_else(|| pos.get(i).cloned()).unwrap_or(V::Unit)
+    };
+    // Lista bez innych referencji: map zapisuje wyniki w tej samej tablicy.
+    let o = match (o, name) {
+        (V::List(mut xs), "map") if Rc::strong_count(&xs) == 1 && Rc::weak_count(&xs) == 0 => {
+            let f = arg(0, "");
+            let out = Rc::get_mut(&mut xs).unwrap();
+            for x in out.iter_mut() {
+                let y = apply(&f, std::mem::replace(x, V::Unit))?;
+                *x = y;
+            }
+            return Ok(V::List(xs));
+        }
+        (o, _) => o,
     };
     let nomethod = || terr(format!("linia {}: {} nie ma metody {}", line, show(&o), name));
     match &o {
@@ -2689,4 +2737,437 @@ pub fn run_tests(tests: Vec<Test>, spec: Vec<(&'static str, Spec)>) {
         std::process::exit(1);
     }
     println!("Wszystkie testy przechodzą ({}): {}", tests.len(), summary);
+}
+
+// ---------- wartości o typie znanym w kompilacji ----------
+// Generator zamienia Int na i64, Bool na bool, String na Rc<str>, List<T> na Rc<Vec<T>>, a rekord
+// użytkownika na struct. Val przenosi je do V i z powrotem tam, gdzie typ nie jest znany.
+
+pub trait Val: Clone {
+    fn tv(self) -> V;
+    fn fv(v: V) -> Result<Self, Ctl>;
+    fn eqv(&self, o: &Self) -> bool;
+    fn list_tv(xs: Rc<Vec<Self>>) -> V {
+        V::List(Rc::new(match Rc::try_unwrap(xs) {
+            Ok(v) => v.into_iter().map(Val::tv).collect(),
+            Err(rc) => rc.iter().cloned().map(Val::tv).collect(),
+        }))
+    }
+    fn list_fv(xs: Rc<Vec<V>>) -> Result<Rc<Vec<Self>>, Ctl> {
+        let out: Result<Vec<Self>, Ctl> = match Rc::try_unwrap(xs) {
+            Ok(v) => v.into_iter().map(Self::fv).collect(),
+            Err(rc) => rc.iter().cloned().map(Self::fv).collect(),
+        };
+        Ok(Rc::new(out?))
+    }
+}
+
+pub fn bad<T>(v: &V) -> Result<T, Ctl> {
+    terr(format!("wewnętrzny błąd typu: {}", show(v)))
+}
+#[inline]
+pub fn to_v<T: Val>(x: T) -> V {
+    x.tv()
+}
+#[inline]
+pub fn from_v<T: Val>(v: V) -> Result<T, Ctl> {
+    T::fv(v)
+}
+pub fn fget(o: &Obj, k: &str) -> V {
+    o.get(k).cloned().unwrap_or(V::Unit)
+}
+
+impl Val for V {
+    fn tv(self) -> V {
+        self
+    }
+    fn fv(v: V) -> Result<Self, Ctl> {
+        Ok(v)
+    }
+    fn eqv(&self, o: &Self) -> bool {
+        eq(self, o)
+    }
+    fn list_tv(xs: Rc<Vec<V>>) -> V {
+        V::List(xs)
+    }
+    fn list_fv(xs: Rc<Vec<V>>) -> Result<Rc<Vec<V>>, Ctl> {
+        Ok(xs)
+    }
+}
+impl Val for i64 {
+    fn tv(self) -> V {
+        V::Int(self)
+    }
+    fn fv(v: V) -> Result<Self, Ctl> {
+        match v {
+            V::Int(n) => Ok(n),
+            v => bad(&v),
+        }
+    }
+    fn eqv(&self, o: &Self) -> bool {
+        self == o
+    }
+}
+impl Val for bool {
+    fn tv(self) -> V {
+        V::Bool(self)
+    }
+    fn fv(v: V) -> Result<Self, Ctl> {
+        match v {
+            V::Bool(b) => Ok(b),
+            v => bad(&v),
+        }
+    }
+    fn eqv(&self, o: &Self) -> bool {
+        self == o
+    }
+}
+impl Val for Rc<str> {
+    fn tv(self) -> V {
+        V::Str(self)
+    }
+    fn fv(v: V) -> Result<Self, Ctl> {
+        match v {
+            V::Str(s) => Ok(s),
+            v => bad(&v),
+        }
+    }
+    fn eqv(&self, o: &Self) -> bool {
+        self == o
+    }
+}
+impl<T: Val> Val for Rc<Vec<T>> {
+    fn tv(self) -> V {
+        T::list_tv(self)
+    }
+    fn fv(v: V) -> Result<Self, Ctl> {
+        match v {
+            V::List(xs) => T::list_fv(xs),
+            v => bad(&v),
+        }
+    }
+    fn eqv(&self, o: &Self) -> bool {
+        Rc::ptr_eq(self, o) || self.len() == o.len() && self.iter().zip(o.iter()).all(|(a, b)| a.eqv(b))
+    }
+}
+
+pub fn lconv<A: Val, B: Val>(xs: Rc<Vec<A>>) -> Result<Rc<Vec<B>>, Ctl> {
+    match A::list_tv(xs) {
+        V::List(l) => B::list_fv(l),
+        v => bad(&v),
+    }
+}
+
+// Błąd z tym samym opisem, jaki dałby conform w runtime.
+pub fn fail_conform(v: V, d: &Ty, wh: &Wh) -> Ctl {
+    match conform(d, v, wh) {
+        Err(e) => e,
+        Ok(_) => Ctl::Type(format!("{}: warunek typu", wh)),
+    }
+}
+
+#[inline]
+fn int_ok(n: Option<i64>) -> Result<i64, Ctl> {
+    match n {
+        Some(n) if (-MAX_SAFE..=MAX_SAFE).contains(&n) => Ok(n),
+        Some(n) => terr(format!("liczba poza zakresem Int: {}", n)),
+        None => terr("liczba poza zakresem Int"),
+    }
+}
+#[inline]
+pub fn iadd(a: i64, b: i64) -> Result<i64, Ctl> {
+    int_ok(a.checked_add(b))
+}
+#[inline]
+pub fn isub(a: i64, b: i64) -> Result<i64, Ctl> {
+    int_ok(a.checked_sub(b))
+}
+#[inline]
+pub fn imul(a: i64, b: i64) -> Result<i64, Ctl> {
+    int_ok(a.checked_mul(b))
+}
+#[inline]
+pub fn idiv(a: i64, b: i64) -> Result<i64, Ctl> {
+    if b == 0 {
+        return terr("dzielenie przez zero");
+    }
+    Ok(a / b)
+}
+#[inline]
+pub fn irem(a: i64, b: i64) -> Result<i64, Ctl> {
+    if b == 0 {
+        return terr(format!("reszta z dzielenia tylko dla Int: {} % {}", a, b));
+    }
+    Ok(a % b)
+}
+
+pub fn scat(parts: &[&str]) -> Rc<str> {
+    let mut o = String::with_capacity(parts.iter().map(|p| p.len()).sum());
+    for p in parts {
+        o.push_str(p);
+    }
+    Rc::from(o)
+}
+// Bufor do składania tekstu: po użyciu wraca do wątku, więc Rc<str> to jedyna alokacja.
+thread_local! {
+    static SCRATCH: RefCell<String> = RefCell::new(String::new());
+}
+pub fn sbuf() -> String {
+    let mut b = SCRATCH.with(|s| std::mem::take(&mut *s.borrow_mut()));
+    b.reserve(64);
+    b
+}
+pub fn sdone(mut b: String) -> Rc<str> {
+    let r = Rc::from(b.as_str());
+    b.clear();
+    SCRATCH.with(|s| *s.borrow_mut() = b);
+    r
+}
+#[inline]
+pub fn set_rc<T: ?Sized>(d: &mut Rc<T>, s: &Rc<T>) {
+    if !Rc::ptr_eq(d, s) {
+        *d = s.clone();
+    }
+}
+pub fn lext<T: Clone>(mut a: Rc<Vec<T>>, b: Vec<T>) -> Rc<Vec<T>> {
+    Rc::make_mut(&mut a).extend(b);
+    a
+}
+pub fn push_int(b: &mut String, x: i64) {
+    let mut d = [0u8; 20];
+    let mut i = d.len();
+    let mut u = x.unsigned_abs();
+    loop {
+        i -= 1;
+        d[i] = b'0' + (u % 10) as u8;
+        u /= 10;
+        if u == 0 {
+            break;
+        }
+    }
+    if x < 0 {
+        b.push('-');
+    }
+    // SAFETY: same cyfry ASCII.
+    b.push_str(unsafe { std::str::from_utf8_unchecked(&d[i..]) });
+}
+pub fn push_char(b: &mut String, n: i64) -> Result<(), Ctl> {
+    match u32::try_from(n).ok().and_then(char::from_u32) {
+        Some(c) => Ok(b.push(c)),
+        None => terr(format!("char: {} nie jest kodem znaku", n)),
+    }
+}
+pub fn lcat<T: Clone>(mut a: Rc<Vec<T>>, b: Rc<Vec<T>>) -> Rc<Vec<T>> {
+    if a.is_empty() {
+        return b;
+    }
+    match Rc::try_unwrap(b) {
+        Ok(v) => Rc::make_mut(&mut a).extend(v),
+        Err(rc) => Rc::make_mut(&mut a).extend(rc.iter().cloned()),
+    }
+    a
+}
+#[inline]
+pub fn slen(t: &str) -> i64 {
+    t.chars().count() as i64
+}
+#[inline]
+// Błąd poza gorącą ścieżką, żeby at_ref i at_ dało się wkleić w pętlę.
+#[cold]
+#[inline(never)]
+fn at_err(i: i64, n: usize) -> Ctl {
+    Ctl::Type(format!("at: indeks {} poza listą o długości {}", i, n))
+}
+pub fn at_ref<T>(xs: &Rc<Vec<T>>, i: i64) -> Result<&T, Ctl> {
+    match xs.get(i as usize) {
+        Some(x) if i >= 0 => Ok(x),
+        _ => Err(at_err(i, xs.len())),
+    }
+}
+pub fn at_<T: Clone>(xs: &Rc<Vec<T>>, i: i64) -> Result<T, Ctl> {
+    match xs.get(i as usize) {
+        Some(x) if i >= 0 => Ok(x.clone()),
+        _ => Err(at_err(i, xs.len())),
+    }
+}
+pub fn join_(xs: &Rc<Vec<Rc<str>>>, sep: &str) -> Rc<str> {
+    let mut out = String::with_capacity(xs.iter().map(|x| x.len() + sep.len()).sum());
+    for (k, x) in xs.iter().enumerate() {
+        if k > 0 {
+            out.push_str(sep);
+        }
+        out.push_str(x);
+    }
+    Rc::from(out)
+}
+pub fn char_(n: i64) -> Result<Rc<str>, Ctl> {
+    match u32::try_from(n).ok().and_then(char::from_u32) {
+        Some(c) => Ok(Rc::from(c.encode_utf8(&mut [0; 4]) as &str)),
+        None => terr(format!("char: {} nie jest kodem znaku", n)),
+    }
+}
+pub fn trim_(t: &str) -> Rc<str> {
+    Rc::from(t.trim_matches(is_space))
+}
+pub fn str_contains(t: &str, part: &str) -> bool {
+    t.contains(part)
+}
+pub fn split_(t: &str, p: &str) -> Rc<Vec<Rc<str>>> {
+    if p.is_empty() {
+        return Rc::new(t.encode_utf16().map(|u| Rc::from(String::from_utf16_lossy(&[u]))).collect());
+    }
+    Rc::new(t.split(p).map(Rc::from).collect())
+}
+pub fn chars_(t: &str) -> Rc<Vec<Rc<str>>> {
+    Rc::new(t.chars().map(|c| Rc::from(c.encode_utf8(&mut [0; 4]) as &str)).collect())
+}
+
+// map, filter i reverse na liście bez innych referencji pracują w tej samej tablicy.
+// map z tym samym typem elementu zmienia tablicę w miejscu. Lista z innymi referencjami jest najpierw kopiowana.
+pub fn lmap_same<A: Clone, F: FnMut(A) -> Result<Option<A>, Ctl>>(mut xs: Rc<Vec<A>>, mut f: F) -> Result<Rc<Vec<A>>, Ctl> {
+    // Zmiana w miejscu: element wyjmowany, przekazywany f i wkładany z powrotem, a przy None zostaje.
+    // Na czas pętli długość 0, więc panika w f tylko gubi elementy, a nie zwalnia ich dwa razy.
+    let v = Rc::make_mut(&mut xs);
+    let n = v.len();
+    let p = v.as_mut_ptr();
+    unsafe {
+        v.set_len(0);
+        for i in 0..n {
+            let x = p.add(i);
+            match f(std::ptr::read(x)) {
+                Ok(None) => {}
+                Ok(Some(y)) => std::ptr::write(x, y),
+                Err(e) => {
+                    std::ptr::drop_in_place(std::ptr::slice_from_raw_parts_mut(p.add(i + 1), n - i - 1));
+                    v.set_len(i);
+                    return Err(e);
+                }
+            }
+        }
+        v.set_len(n);
+    }
+    Ok(xs)
+}
+pub fn lmap<A: Clone, B, F: FnMut(A) -> Result<B, Ctl>>(xs: Rc<Vec<A>>, mut f: F) -> Result<Rc<Vec<B>>, Ctl> {
+    let same = std::mem::size_of::<A>() == std::mem::size_of::<B>() && std::mem::align_of::<A>() == std::mem::align_of::<B>();
+    match Rc::try_unwrap(xs) {
+        Ok(v) if same => Ok(Rc::new(v.into_iter().map(f).collect::<Result<Vec<B>, Ctl>>()?)),
+        Ok(v) => {
+            let mut out = Vec::with_capacity(v.len());
+            for x in v {
+                out.push(f(x)?);
+            }
+            Ok(Rc::new(out))
+        }
+        Err(rc) => {
+            let mut out = Vec::with_capacity(rc.len());
+            for x in rc.iter() {
+                out.push(f(x.clone())?);
+            }
+            Ok(Rc::new(out))
+        }
+    }
+}
+pub fn lfilter<A: Clone, F: FnMut(&A) -> Result<bool, Ctl>>(xs: Rc<Vec<A>>, mut f: F) -> Result<Rc<Vec<A>>, Ctl> {
+    let mut out = Vec::with_capacity(xs.len());
+    for x in xs.iter() {
+        if f(x)? {
+            out.push(x.clone());
+        }
+    }
+    Ok(Rc::new(out))
+}
+pub fn lrev<A: Clone>(mut xs: Rc<Vec<A>>) -> Rc<Vec<A>> {
+    Rc::make_mut(&mut xs).reverse();
+    xs
+}
+
+pub fn rnd_int(c: &V, lo: i64, hi: i64, line: usize) -> Result<i64, Ctl> {
+    if let V::Cap(cap) = c {
+        if let Cap::Random(g) = &**cap {
+            if lo > hi {
+                return terr(format!("random.int: pusty przedział {}..{}", lo, hi));
+            }
+            return Ok(lo + g.borrow_mut().below((hi - lo + 1) as u64) as i64);
+        }
+    }
+    from_v(call(c.clone(), "int", vec![V::Int(lo), V::Int(hi)], vec![], vec![], line)?)
+}
+pub fn rnd_choice<T: Val>(c: &V, xs: &Rc<Vec<T>>, line: usize) -> Result<T, Ctl> {
+    if let V::Cap(cap) = c {
+        if let Cap::Random(g) = &**cap {
+            if xs.is_empty() {
+                return terr("random.choice: pusta lista");
+            }
+            return Ok(xs[g.borrow_mut().below(xs.len() as u64) as usize].clone());
+        }
+    }
+    from_v(call(c.clone(), "choice", vec![xs.clone().tv()], vec![], vec![], line)?)
+}
+// Dopisanie krótkiego tekstu bez wołania memcpy: dwa zachodzące na siebie kawałki stałej długości.
+#[inline(always)]
+pub fn push_s(b: &mut String, s: &str) {
+    let n = s.len();
+    if n > 32 {
+        b.push_str(s);
+        return;
+    }
+    // SAFETY: zapis mieści się w zarezerwowanym miejscu, a odczyt w s; dopisane bajty to całe s.
+    unsafe {
+        let v = b.as_mut_vec();
+        v.reserve(32);
+        let d = v.as_mut_ptr().add(v.len());
+        let p = s.as_ptr();
+        use std::ptr::copy_nonoverlapping as cp;
+        if n >= 16 {
+            cp(p, d, 16);
+            cp(p.add(n - 16), d.add(n - 16), 16);
+        } else if n >= 8 {
+            cp(p, d, 8);
+            cp(p.add(n - 8), d.add(n - 8), 8);
+        } else if n >= 4 {
+            cp(p, d, 4);
+            cp(p.add(n - 4), d.add(n - 4), 4);
+        } else if n > 0 {
+            *d = *p;
+            *d.add(n / 2) = *p.add(n / 2);
+            *d.add(n - 1) = *p.add(n - 1);
+        }
+        v.set_len(v.len() + n);
+    }
+}
+
+// Bufor stdout do pisania wprost, bez tekstu pośredniego. Wyrażenie pisane do bufora nie widzi
+// żadnego uprawnienia, więc nic innego nie pisze w tym czasie na stdout.
+pub fn out_take() -> String {
+    OUT.with(|o| std::mem::take(&mut *o.borrow_mut()))
+}
+pub fn term_put(c: &V, mut b: String, st: usize, ok: Result<(), Ctl>, line: usize) -> R {
+    let real = matches!(c, V::Cap(cap) if matches!(**cap, Cap::Terminal));
+    let t = if real && ok.is_ok() {
+        None
+    } else {
+        let t = b[st..].to_string();
+        b.truncate(st);
+        Some(t)
+    };
+    let full = b.len() > 1 << 16;
+    OUT.with(|o| *o.borrow_mut() = b);
+    if full {
+        out_flush();
+    }
+    ok?;
+    match t {
+        None => Ok(V::Unit),
+        Some(t) => call(c.clone(), "write", vec![V::Str(Rc::from(t))], vec![], vec![], line),
+    }
+}
+pub fn term_write(c: &V, t: &str, line: usize) -> R {
+    if let V::Cap(cap) = c {
+        if let Cap::Terminal = &**cap {
+            out_write(t);
+            return Ok(V::Unit);
+        }
+    }
+    call(c.clone(), "write", vec![V::Str(Rc::from(t))], vec![], vec![], line)
 }

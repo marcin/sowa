@@ -10,6 +10,7 @@ mod codegen;
 mod codegen_rs;
 mod env;
 mod lexer;
+mod moves;
 mod parser;
 mod project;
 mod toml;
