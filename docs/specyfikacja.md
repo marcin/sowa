@@ -123,7 +123,7 @@ fn send_invoice(invoice: Invoice, mail: Mailer) -> Sent | SendError
 mail = { type = "Mailer", server = "smtp.firma.pl:587" }
 ```
 
-Uprawnienia nie da się utworzyć w kodzie, więc każdy `Mailer` w programie pochodzi od `main`, który dostaje go od runtime według `[resources]`. `mail.send(to, subject, pdf)` nie przyjmuje adresu serwera. Funkcji w rodzaju `http_post("https://gdzies.com", invoice)` nie ma, a `Http` jest przypięty do jednego adresu z `sowa.toml`. Człowiek zatwierdza raz: „faktury wolno wysyłać przez smtp.firma.pl”.
+Uprawnienia nie da się utworzyć w kodzie, więc każdy `Mailer` w programie pochodzi od `main`, który dostaje go od runtime według `[resources]`. `mail.send(to, subject, body)` nie przyjmuje adresu serwera. Funkcji w rodzaju `http_post("https://gdzies.com", invoice)` nie ma, a `Http` jest przypięty do jednego adresu z `sowa.toml`. Człowiek zatwierdza raz: „faktury wolno wysyłać przez smtp.firma.pl”.
 
 Reguły uprawnień: [zalozenia.md](zalozenia.md#uprawnienia).
 

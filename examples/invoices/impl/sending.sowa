@@ -1,10 +1,11 @@
-fn render_pdf(invoice: Invoice) -> Pdf
-  // ciało pominięte w przykładzie
+// Załączniki (np. PDF) to otwarte pytanie, więc faktura idzie w treści, jak na stronie faktury.
+fn mail_body(invoice: Invoice) -> Html
+  return invoice_page(invoice)
 
 // Funkcja pomocnicza, której nie ma w src/: prywatna, spoza modułu jej nie widać.
 fn subject(invoice: Invoice) -> String
   return "Faktura " + invoice.number
 
 fn send_invoice(invoice: Invoice, mail: Mailer) -> Sent | SendError
-  pdf = render_pdf(invoice)
-  return try mail.send(invoice.buyer.email, subject(invoice), pdf)
+  body = mail_body(invoice)
+  return try mail.send(invoice.buyer.email, subject(invoice), body)

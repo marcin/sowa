@@ -1,10 +1,11 @@
 desc Wysyłka faktury e-mailem.
 why decyzje/003-wysylka-osobno.md
 
-type SendError = MailRejected | MailTimeout
+// MailError (MailRejected | MailTimeout) zwraca wbudowane mail.send.
+type SendError = MailError
 
-fn render_pdf(invoice: Invoice) -> Pdf
-  desc Tworzy PDF faktury. Czysta funkcja: ta sama faktura daje zawsze ten sam PDF.
+fn mail_body(invoice: Invoice) -> Html
+  desc Treść e-maila z fakturą. Czysta funkcja: ta sama faktura daje zawsze tę samą treść.
 
 // Mailer to serwer z [resources] w sowa.toml. Innego adresu nie da się podać w kodzie.
 fn send_invoice(invoice: Invoice, mail: Mailer) -> Sent | SendError

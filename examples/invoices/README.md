@@ -4,6 +4,8 @@ Mały system do wystawiania faktur z prostą aplikacją webową, napisany w Sowi
 
 Człowiek zatwierdza [specyfikację](../../docs/specyfikacja.md) w `src/` i dokumentację w `docs/`, a kodu w `impl/` nie czyta. Wyjątkiem jest numeracja, której kod człowiek czyta.
 
+`sowa check` i `sowa test` przechodzą w obu backendach. `sowa run --fake mail` uruchamia aplikację na porcie 8080, ale formularz nie ma jeszcze pól pozycji, więc faktury z przeglądarki się nie wystawi.
+
 Reguły biznesowe są uproszczone na potrzeby przykładu. To ilustracja języka, a nie wzór poprawnego rozliczania VAT.
 
 ## Struktura
@@ -20,7 +22,7 @@ invoices/
     issuing.sowa               issue_invoice: od formularza do zapisanej faktury
     numbering.sowa             numery FV/2026/0001 nadawane w transakcji
     payments.sowa              mark_paid, pay_from_bank
-    sending.sowa               send_invoice: PDF i e-mail przez mail: Mailer
+    sending.sowa               send_invoice: e-mail przez mail: Mailer
     web.sowa                   aplikacja webowa: route, handle, strony HTML
     main.sowa                  main: jedyne miejsce, w którym program dostaje uprawnienia
   impl/                        ciała funkcji, te same nazwy plików co w src/

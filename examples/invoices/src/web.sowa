@@ -2,10 +2,8 @@ desc Aplikacja webowa: formularz nowej faktury, podgląd faktury i wysyłka e-ma
 why zalozenia.md#obliczenia-i-uprawnienia
 why zalozenia.md#błędy
 
-// Zapytanie i odpowiedź to zwykłe wartości. Serwer (web: Server w main) tylko
+// Zapytanie i odpowiedź to zwykłe wartości. Method (Get, Post, ...) jest wbudowany. Serwer (web: Server w main) tylko
 // zamienia HTTP na Request i Response na HTTP, więc routing i strony testuje się bez niego.
-
-type Method = Get | Post
 
 type Request
   method: Method

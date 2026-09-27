@@ -348,7 +348,7 @@ impl<'a> Ck<'a> {
                 );
             }
             if let Some((_, f)) = info.imp {
-                if !self.p.codeowners.iter().any(|pat| glob_match(pat, &f.path)) {
+                if !self.p.codeowners.iter().any(|(pat, _)| glob_match(pat, &f.path)) {
                     self.err(
                         &f.path,
                         0,
@@ -721,7 +721,11 @@ impl<'a> Ck<'a> {
             }
             ExprKind::Method { obj, name, args, .. } => {
                 let t = self.ty(obj, sc)?;
-                match (self.base(&t, 0)?.as_str(), name.as_str()) {
+                let b = match self.cap(&t) {
+                    Some(c) => c,
+                    None => self.base(&t, 0)?,
+                };
+                match (b.as_str(), name.as_str()) {
                     ("List", "filter" | "reverse") => Some(t),
                     ("List", "map") => {
                         let el = self.elem(&t);
@@ -743,6 +747,7 @@ impl<'a> Ck<'a> {
                     ("Clock", "now") => n("DateTime"),
                     ("Clock", "today") => n("Date"),
                     ("Random", "int") => n("Int"),
+                    ("Mailer", "send") => Some(TypeExpr::Union(vec![named("Sent"), named("MailError")])),
                     _ => None,
                 }
             }
@@ -865,6 +870,9 @@ impl<'a> Ck<'a> {
                         }
                     }
                 }
+                if ot.as_ref().and_then(|t| self.cap(t)).as_deref() == Some("Mailer") && name == "send" {
+                    self.mail_args(args, e.line, sc, f);
+                }
                 if self.kind(obj, sc).as_deref() == Some("List") && !LIST_METHODS.contains(&name.as_str()) {
                     self.err(&f.path, e.line, format!("lista nie ma metody {}; dostępne: {}", name, LIST_METHODS.join(", ")));
                 }
@@ -920,7 +928,7 @@ impl<'a> Ck<'a> {
             ExprKind::Lambda { .. } => self.lambda(e, None, sc, f, d),
             ExprKind::Try(x) => {
                 self.expr(x, sc, f, d);
-                self.try_errors(x, e.line, f, d);
+                self.try_errors(x, e.line, sc, f, d);
             }
             _ => {}
         }
@@ -1072,6 +1080,14 @@ impl<'a> Ck<'a> {
         }
     }
 
+    // Nazwa typu uprawnienia (Db, Mailer...), gdy t nim jest.
+    fn cap(&self, t: &TypeExpr) -> Option<String> {
+        match t {
+            TypeExpr::Name { name, .. } if CAPS.contains(&name.as_str()) => Some(name.clone()),
+            _ => None,
+        }
+    }
+
     // Podstawa typu wyrażenia (Int, String, List, nazwa rekordu...), gdy typ jest znany.
     fn kind(&self, e: &Expr, sc: &mut Scopes) -> Option<String> {
         self.ty(e, sc).and_then(|t| self.base(&t, 0))
@@ -1093,19 +1109,67 @@ impl<'a> Ck<'a> {
         }
     }
 
-    // `try f(...)`: błędy f muszą mieścić się w wyniku funkcji, w której stoi try.
-    fn try_errors(&mut self, x: &Expr, line: usize, f: &SourceFile, d: &FnDecl) {
-        let ExprKind::Call { name, .. } = &x.kind else { return };
-        let Some(info) = self.env.fns.get(name) else { return };
-        let Some(r) = &info.decl().ret else { return };
-        let alts = r.alts();
-        if alts.len() < 2 {
+    // mail.send(to, subject, body): adresat, temat i treść HTML. Serwera nie ma w argumentach.
+    fn mail_args(&mut self, args: &[Arg], line: usize, sc: &mut Scopes, f: &SourceFile) {
+        const WANT: [(&str, &str); 3] = [("to", "String"), ("subject", "String"), ("body", "Html")];
+        if args.len() != 3 {
+            self.err(&f.path, line, format!("mail.send bierze 3 argumenty (to, subject, body), a dostał {}", args.len()));
             return;
         }
-        let mut errs = vec![];
-        for a in &alts[1..] {
-            errs.extend(self.env.leaves(a));
+        for (k, a) in args.iter().enumerate() {
+            let (p, want) = match &a.name {
+                Some(n) => match WANT.iter().find(|(w, _)| w == n) {
+                    Some(w) => *w,
+                    None => {
+                        self.err(&f.path, line, format!("mail.send nie ma parametru {}", n));
+                        continue;
+                    }
+                },
+                None => WANT[k],
+            };
+            if let Some(have) = self.kind(&a.value, sc) {
+                if !fits(want, &have) {
+                    self.err(&f.path, line, format!("mail.send: {} ma typ {}, a dostaje {}", p, want, have));
+                }
+            }
         }
+    }
+
+    // `try f(...)`: błędy f muszą mieścić się w wyniku funkcji, w której stoi try.
+    fn try_errors(&mut self, x: &Expr, line: usize, sc: &mut Scopes, f: &SourceFile, d: &FnDecl) {
+        let mut errs = vec![];
+        let name = match &x.kind {
+            ExprKind::Call { name, .. } => {
+                let Some(info) = self.env.fns.get(name) else { return };
+                let Some(r) = &info.decl().ret else { return };
+                let alts = r.alts();
+                if alts.len() < 2 {
+                    return;
+                }
+                for a in &alts[1..] {
+                    errs.extend(self.env.leaves(a));
+                }
+                name.clone()
+            }
+            // Metoda uprawnienia z błędami, np. mail.send: typ błędów z CAP_TRY.
+            ExprKind::Method { obj, name, .. } => {
+                let cap = self.ty(obj, sc).and_then(|t| self.cap(&t)).unwrap_or_default();
+                match CAP_TRY.iter().find(|(c, m, _)| *c == cap && m == name) {
+                    Some((_, _, e)) => errs.extend(self.env.leaves(&named(e))),
+                    None => {
+                        let can: Vec<String> = CAP_TRY.iter().map(|(c, m, _)| format!("{}.{}", c, m)).collect();
+                        self.err(
+                            &f.path,
+                            line,
+                            format!("`try` przed metodą stoi tylko przy {}, a tu jest {}.{}", can.join(", "), cap, name),
+                        );
+                        return;
+                    }
+                }
+                format!("{}.{}", cap, name)
+            }
+            _ => return,
+        };
         // try w przykładzie albo w lambdzie w transakcji: sprawdza je runtime.
         let Some(own) = &d.ret else {
             self.err(

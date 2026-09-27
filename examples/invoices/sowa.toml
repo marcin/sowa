@@ -18,11 +18,21 @@ example_lines = 5   # linii w jednym przykładzie
 # nie ma, bo uprawnienia nie da się utworzyć w kodzie. Adresy z `db`, `mail` i `web`
 # to jedyne połączenia sieciowe, na które pozwala runtime.
 # Uzasadnienie w docs/zalozenia.md#obliczenia-i-uprawnienia.
+# Baza to plik SQLite obok sowa.toml. smtp.firma.pl to serwer wymyślony na potrzeby przykładu,
+# więc bez --fake mail wysyłka kończy się komunikatem „Serwer poczty nie odpowiada”.
+# Nadawcę podaje from, a login do serwera (użytkownik:hasło) runtime czyta ze zmiennej SMTP_LOGIN.
 [resources]
-db    = { type = "Db", url = "postgres://localhost/invoices" }
+db    = { type = "Db", url = "sqlite:invoices.db" }
 clock = { type = "Clock" }
-mail  = { type = "Mailer", server = "smtp.firma.pl:587" }
+mail  = { type = "Mailer", server = "smtp.firma.pl:587", from = "faktury@firma.pl", login_env = "SMTP_LOGIN" }
 web   = { type = "Server", listen = "0.0.0.0:8080" }
+
+# Zasoby dla sowa test i sowa run --fake: bez połączeń z siecią.
+# server = "memory": wiadomości nigdzie nie wychodzą, a mail.send zwraca Sent.
+[resources.test]
+db    = { type = "Db", url = "memory" }
+clock = { type = "Clock", now = "2026-09-27T10:00:00" }
+mail  = { type = "Mailer", server = "memory" }
 
 # Zatwierdzanie podpisanym commitem, przy pracy bez PR albo na jednym koncie.
 # Zob. docs/zatwierdzanie.md w repozytorium Sowy.

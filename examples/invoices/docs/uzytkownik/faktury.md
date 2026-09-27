@@ -46,4 +46,4 @@ Fakturę oznaczamy jako opłaconą ({mark_paid}), gdy wpłata jest równa kwocie
 
 ## Wysyłka e-mailem
 
-Fakturę w PDF wysyłamy na adres nabywcy ({send_invoice}). Wysyłka jest osobnym krokiem: jeśli e-mail nie dojdzie, faktura nadal jest wystawiona i można wysłać ją ponownie.
+Fakturę wysyłamy e-mailem na adres nabywcy ({send_invoice}). Wysyłka jest osobnym krokiem: jeśli e-mail nie dojdzie, faktura nadal jest wystawiona i można wysłać ją ponownie.
