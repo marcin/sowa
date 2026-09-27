@@ -51,6 +51,7 @@ Czasy kompilacji i działania w różnych ustawieniach, w tym z Cranelift, są w
 - Parametry `main` to dokładnie zasoby z `[resources]` o tych samych typach, a `[resources.test]` ma tylko te nazwy.
 - Atrapa ma sygnaturę `(HttpRequest) -> HttpResponse`, a jej ciało jest w CODEOWNERS i ma `-linguist-generated`.
 - `match` z jedną wartością o znanym typie obsługuje każdy wariant albo ma `_`.
+- Zmienne lokalne mają typ wartości: z przypisania, z elementu listy w `for` i we wzorcu `[a, b]`, z parametru lambdy w `map`, `filter` i `sort_by`, z wariantu we wzorcu `Wariant v`. Wyrażenia dostają typ ze stałych, pól, wyników funkcji, konstruktorów, operatorów, `as`, `with`, `try` i metod list. Gdy typ jest znany, błędem jest: argument, który nie pasuje do parametru funkcji, `return` z wartością spoza wyniku, warunek `if` i `while` oraz argumenty `&&`, `||` i `!` inne niż `Bool`, porównanie wartości różnych typów, arytmetyka na czymś innym niż liczby (`+` łączy też teksty i listy), `var` z wartością innego typu i pole rekordu z wartością innego typu. Nieznany typ niczego nie blokuje. `Int` pasuje tam, gdzie `Money`.
 - Konstruktor rekordu i wariantu dostaje dokładnie swoje pola po nazwie. `==` z wariantem z danymi to błąd (trzeba `is`).
 - Błędy funkcji po `try` mieszczą się w wyniku funkcji, w której stoi `try`.
 - Kolejność pod sygnaturą: `desc`, `doc`, `why`, `example`, `property`. Pliki i nagłówki z `doc`/`why` istnieją, a `{Symbol}` w `desc` i w `docs/` wskazuje typ albo funkcję.
@@ -70,11 +71,13 @@ Kompilator musiał jakoś rozstrzygnąć rzeczy, których [specyfikacja](../docs
 - **Liczby.** `Int` to liczba całkowita (poza zakresem ±2⁵³ to błąd programu), `Money` to liczba dziesiętna bez zaokrągleń przy `+`, `-`, `*`; `/` liczy z 20 miejscami, `round(x, 2)` zaokrągla połówki od zera. `Int` pasuje tam, gdzie `Money`.
 - **Wykonanie.** Każda funkcja jest asynchroniczna i każde wywołanie czeka na wynik, więc kod w Sowie nie ma `async`. Warunki w typach są synchroniczne i nie mogą wołać funkcji z programu, metod, lambd, `or` ani `try`.
 - **Warunki w runtime.** Każdy parametr i wynik funkcji jest sprawdzany z typem przy wywołaniu. Niespełniony warunek to błąd programu z nazwą funkcji, a nie zwykły wariant.
+- **Typ zmiennej `var`.** PROPOZYCJA: `var` ma stały typ, a nadpisanie wartością innego typu to błąd w `sowa check`. Wyjątki: zmienna z `Int` po przypisaniu `Money` ma odtąd typ `Money` (`var total = 0`, potem kwoty), a `[]` dostaje typ pierwszej listy ze znanym elementem. Runtime na to pozwala: w Bunie zmienna nie ma typu, a w Ruście staje się dynamiczna.
+- **`==` na różnych typach.** PROPOZYCJA: w runtime `"1" == 1` to `false`, a `sowa check` zgłasza to jako błąd, bo taki warunek nigdy nie jest prawdziwy.
 - **Typy w `impl/`.** Plik w `impl/` może definiować własne typy (np. `VatInputError` w `impl/issuing.sowa`). Ich nazwy są globalne jak wszystkie inne.
 - **Property.** Parametry bez uprawnień są losowane z typu: 100 przypadków, ziarno z pliku i linii, więc wynik jest powtarzalny. Generator korzysta z warunku (`α > 0`, `len(α) == 10`, `matches(α, "...")`, `only_digits`, `nip_checksum_ok`, `valid_email`, `starts_with`) i odrzuca wartości, które warunku nie spełniają. Teksty losuje też z listy trudnych przypadków (`<script>`, `&`, cudzysłowy, polskie litery).
 
 ## Ograniczenia
 
 - `match` na kilku wartościach nie jest sprawdzany pod kątem kompletności; brak pasującej gałęzi to błąd programu w runtime.
-- Typy wyrażeń nie są wyprowadzane poza prostymi przypadkami (parametr, wynik funkcji), więc część błędów typów wychodzi dopiero w runtime albo w testach.
+- Wnioskowanie typów jest lokalne i ostrożne: nie zawęża typu po `is`, nie wyprowadza wyniku lambdy z blokiem, nie porównuje elementów list (`List<Int>` i `List<String>` to dla niego ta sama `List`) ani typów wbudowanych funkcji poza `len`, `at`, `join` i podobnymi. Warunków w typach (`Int(α > 0)`) nie sprawdza, tylko ich podstawę. Część błędów typów wychodzi więc dopiero w runtime albo w testach.
 - Brak `sowa review`, solvera, mutacji, `docs.lock` i `--ci`.
