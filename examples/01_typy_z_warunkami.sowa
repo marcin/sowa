@@ -1,0 +1,22 @@
+// Typy z warunkami: w nawiasie zwykły warunek, α to sprawdzana wartość.
+
+type Price    = Money(α > 0)
+type Percent  = Int(α >= 0 && α <= 100)
+type Ratio    = Float(α > 0 && α < 1)
+type Age      = Int(α >= 0 && α < 150)
+type NonEmpty = List(len(α) > 0)
+type Slug     = String(len(α) > 0 && lowercase(α) == α)
+
+// Własna nazwa zamiast α, gdy warunek jest dłuższy albo nazwa coś wyjaśnia.
+type Even  = Int(n => n % 2 == 0)
+type Valid = Order(o => o.total > 0 && len(o.items) > 0 && o.paid_at > o.created_at)
+
+// Warunek bezpośrednio przy parametrze, bez osobnego typu.
+// Może odwoływać się do wcześniejszych parametrów.
+fn slice(list: List, start: Int(α >= 0), end: Int(α > start)) -> List
+
+// apply_discount niczego nie sprawdza: dostaje Percent, więc wartość jest poprawna.
+fn apply_discount(total: Money, pct: Percent) -> Money
+  if pct == 0
+    return total
+  return total - total * pct / 100

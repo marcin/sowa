@@ -1,0 +1,30 @@
+// Zmienne: bez let, z var.
+// Domyślnie każda nazwa jest niezmienna. var tylko tam, gdzie wartość się zmienia.
+
+type Slug      = String(len(α) > 0 && lowercase(α) == α)
+type SlugError = InvalidSlug
+
+fn invoice_total(items: List) -> Money
+  var total = 0
+  for item in items
+    total = total + item.price * item.quantity
+  vat = total * 23 / 100
+  return total + vat
+
+fn normalize(input: String) -> Slug | SlugError
+  clean = lowercase(trim(input))
+  slug = clean as Slug or return InvalidSlug
+  return slug
+
+// Tak się nie skompiluje:
+//
+//   vat = 0
+//   vat = total * 23 / 100
+//   // błąd: vat jest niezmienne, użyj var
+//
+//   input = trim(input)
+//   // błąd: input jest już w zasięgu (parametr), wybierz nową nazwę
+//
+//   var total = 0
+//   totl = total + 1
+//   // błąd: totl nigdy nie jest używane

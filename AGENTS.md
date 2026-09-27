@@ -1,0 +1,16 @@
+# Sowa
+
+Projekt języka programowania na erę AI (na razie tylko specyfikacja i przykłady, bez kompilatora).
+
+Przed pracą przeczytaj:
+- docs/zalozenia.md – zasady i ustalona składnia (źródło prawdy)
+- docs/przemyslenia.md – uzasadnienia, odrzucone warianty, otwarte pytania
+- docs/porownanie.md – porównanie z innymi językami
+- docs/ocena.md – ocena projektu i proponowany następny krok (prototyp checkera)
+- examples/*.sowa – przykłady; muszą być zgodne z docs/zalozenia.md
+
+Zasady przy zmianach:
+- Kryterium nadrzędne: jak najmniej wiedzy potrzebnej człowiekowi do przeczytania kodu.
+- Nie wprowadzaj nowej składni w przykładach bez dopisania jej do zalozenia.md albo do otwartych pytań.
+- Decyzje odrzucone wraz z powodem zapisuj w przemyslenia.md.
+- Dokumentacja jest po polsku.

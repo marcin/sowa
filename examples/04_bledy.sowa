@@ -1,0 +1,25 @@
+// Błędy są częścią typu wyniku.
+
+type Price         = Money(α > 0)
+type PaymentError  = CardDeclined | NoFunds | Timeout
+type CheckoutError = Declined | TryLater
+
+fn charge(card: Card, amount: Price) -> Receipt | PaymentError
+  effects Net
+
+// try: jeśli wynik jest błędem, funkcja kończy się i zwraca go wyżej.
+fn pay(user: User, amount: Price) -> Receipt | PaymentError
+  effects Net, Db.write
+  receipt = try charge(user.card, amount)
+  save_receipt(receipt)
+  return receipt
+
+// match: obsługa na miejscu. Każdy przypadek musi być obsłużony.
+// Po dodaniu np. Fraud do PaymentError ten match przestanie się kompilować.
+fn pay_or_retry(user: User, amount: Price) -> Receipt | CheckoutError
+  effects Net, Db.write
+  match pay(user, amount)
+    Receipt r    => return r
+    CardDeclined => return Declined
+    NoFunds      => return Declined
+    Timeout      => return TryLater

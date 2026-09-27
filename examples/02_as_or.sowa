@@ -1,0 +1,35 @@
+// Zamiana zwykłej wartości na typ z warunkiem: as ... or
+
+type Percent = Int(α >= 0 && α <= 100)
+type Email   = String(valid_email(α))
+
+type FormError = InvalidDiscount | InvalidEmail
+
+fn read_form(form: Form) -> Signup | FormError
+  pct = form.discount as Percent or return InvalidDiscount
+  email = form.email as Email or return InvalidEmail
+  return Signup(email, pct)
+
+// Wartość domyślna zamiast błędu.
+fn discount_or_zero(input: Int) -> Percent
+  return input as Percent or 0
+
+// Blok, gdy trzeba zrobić coś więcej niż return. Musi kończyć się return.
+fn read_discount(input: Int) -> Percent | FormError
+  effects Log
+  pct = input as Percent or
+    log("zły rabat: " + input)
+    return InvalidDiscount
+  return pct
+
+// To samo zwykłym if, bez as ... or.
+fn read_discount_if(input: Int) -> Percent | FormError
+  if input is not Percent
+    return InvalidDiscount
+  return input as Percent
+
+// Tak się nie skompiluje:
+//
+//   pct = Percent(form.discount)
+//
+// błąd: nie można udowodnić, że form.discount >= 0 && form.discount <= 100
