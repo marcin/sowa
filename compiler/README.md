@@ -22,6 +22,8 @@ sowa build --rust / run --rust     # program w Ruście: KATALOG/.sowa/app_rs
 
 `--panic-abort` (tylko z `--rust`) dodaje `-C panic=abort`. Program jest wtedy ok. 2% szybszy, a plik wykonywalny ok. 10% mniejszy, bo znika kod rozwijania stosu. Błędy Sowy idą przez `Result` i działają tak samo. Inaczej zachowuje się tylko panika, czyli błąd w kompilatorze albo w runtime: proces kończy się od razu z kodem 134 zamiast 101 i bez sprzątania. Opcja nie jest domyślna, bo po dodaniu serwera w Ruście panika w obsłudze jednego żądania zatrzymałaby z nią cały serwer, a bez niej można ją złapać i odpowiedzieć 500 tylko temu żądaniu.
 
+Czasy kompilacji i działania w różnych ustawieniach, w tym z Cranelift, są w [docs/kompilacja.md](../docs/kompilacja.md).
+
 ## Pliki
 
 | Plik | Co robi |

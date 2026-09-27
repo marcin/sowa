@@ -89,6 +89,7 @@ Z samej sygnatury widać, że funkcja łączy się z bankiem, zapisuje do bazy i
 - [docs/zalozenia.md](docs/zalozenia.md): zasady i ustalona składnia.
 - [docs/przemyslenia.md](docs/przemyslenia.md): skąd te decyzje, odrzucone warianty, otwarte pytania, podobne projekty.
 - [docs/porownanie.md](docs/porownanie.md): tabele porównawcze z popularnymi językami i z językami ery AI.
+- [docs/kompilacja.md](docs/kompilacja.md): dwie drogi kompilacji (JS dla Buna i Rust), ich czasy, Cranelift i inne możliwe cele.
 - [docs/ocena.md](docs/ocena.md): szczera ocena, mocne i słabe strony, następny krok.
 - [examples/](examples/): krótkie przykłady składni.
 - [editors/vscode/](editors/vscode/): kolorowanie składni w VS Code.
