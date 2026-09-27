@@ -5,7 +5,7 @@
 //
 // Wartości: Int to i64 w zakresie ±(2⁵³-1) jak w JS, Money to i128 ze skalą 10²⁰ (jak Dec w JS),
 // rekord i wariant to nazwa i pola w kolejności z definicji typu.
-#![allow(unused, unreachable_code, unused_mut, unused_parens, dead_code, non_snake_case, unused_braces)]
+#![allow(unused, unreachable_code, unused_mut, unused_parens, dead_code, non_snake_case, non_camel_case_types, unused_braces)]
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
