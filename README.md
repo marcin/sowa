@@ -108,6 +108,8 @@ Program w Sowie kompiluje się do JavaScriptu (Bun) albo do Rusta (`sowa build -
 
 Na wejściu 4 razy większym Sowa → Rust jest ok. 12% wolniejsza od ttfx. Szczegóły, zgodność bajt w bajt i sposób powtórzenia pomiaru są w [porownanie.md](examples/ttfx_decrypt/docs/porownanie.md).
 
+[examples/ttfx_decrypt_fast](examples/ttfx_decrypt_fast/) daje to samo wyjście, ale w każdej klatce przelicza tylko wiersze w trakcie sceny, a tekst składa tylko ze zmienionych wierszy. W Ruście liczy 60 wierszy w 41 ms zamiast 55 ms (ttfx), a 180 wierszy w 130 ms zamiast 213 ms, czyli ok. 1,3–1,6 raza szybciej. W Bunie jest wolniejszy od pierwszej wersji. Szczegóły są w [porownanie.md](examples/ttfx_decrypt_fast/docs/porownanie.md).
+
 ## Status
 
-Na razie to głównie projekt na papierze: specyfikacja i przykłady. [compiler/](compiler/) to kompilator do JavaScriptu (Bun) i do Rusta: `sowa check`, `sowa test` i `sowa run` działają na [examples/fakturownia_web](examples/fakturownia_web/) i [examples/ttfx_decrypt](examples/ttfx_decrypt/), bez solvera i bez `sowa review`. Następny krok to `sowa check` dla uprawnień, specyfikacji i dokumentacji oraz `sowa review` z solverem, sprawdzony na [examples/invoices](examples/invoices/) ([plan](docs/ocena.md#następny-krok)). Uwagi i krytyka mile widziane.
+Na razie to głównie projekt na papierze: specyfikacja i przykłady. [compiler/](compiler/) to kompilator do JavaScriptu (Bun) i do Rusta: `sowa check`, `sowa test` i `sowa run` działają na [examples/fakturownia_web](examples/fakturownia_web/), [examples/ttfx_decrypt](examples/ttfx_decrypt/) i [examples/ttfx_decrypt_fast](examples/ttfx_decrypt_fast/), bez solvera i bez `sowa review`. Następny krok to `sowa check` dla uprawnień, specyfikacji i dokumentacji oraz `sowa review` z solverem, sprawdzony na [examples/invoices](examples/invoices/) ([plan](docs/ocena.md#następny-krok)). Uwagi i krytyka mile widziane.
