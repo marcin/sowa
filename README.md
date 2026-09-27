@@ -87,6 +87,7 @@ Z samej sygnatury widać, że funkcja łączy się z bankiem, zapisuje do bazy i
 - [docs/specyfikacja.md](docs/specyfikacja.md): specyfikacja i kod osobno, izolacja, uprawnienia, co blokuje które zagrożenie.
 - [docs/zatwierdzanie.md](docs/zatwierdzanie.md): zatwierdzenie na końcu, `sowa review`, `docs.lock`, CODEOWNERS i kiedy to nie wystarcza.
 - [docs/zalozenia.md](docs/zalozenia.md): zasady i ustalona składnia.
+- [docs/gramatyka.md](docs/gramatyka.md): gramatyka na jedną stronę: wcięcia, deklaracje, instrukcje i pierwszeństwo operatorów.
 - [docs/przemyslenia.md](docs/przemyslenia.md): skąd te decyzje, odrzucone warianty, otwarte pytania, podobne projekty.
 - [docs/porownanie.md](docs/porownanie.md): tabele porównawcze z popularnymi językami i z językami ery AI.
 - [docs/kompilacja.md](docs/kompilacja.md): dwie drogi kompilacji (JS dla Buna i Rust), ich czasy, Cranelift i inne możliwe cele.

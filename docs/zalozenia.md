@@ -13,6 +13,8 @@ Agent pisze, człowiek zatwierdza. Człowiek zatwierdza specyfikację: typy, syg
 
 ## Składnia (ustalona)
 
+Pełna gramatyka, z wcięciami i pierwszeństwem operatorów, jest w [gramatyka.md](gramatyka.md).
+
 ### Funkcje
 
 Słowo kluczowe to `fn`. Zawsze jawne typy parametrów i wyniku. Zawsze jawne `return`, bez niejawnego zwracania ostatniego wyrażenia.
