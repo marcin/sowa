@@ -126,6 +126,8 @@ Hasło do klucza nie wystarcza. Jeśli klucz jest odblokowany w `ssh-agent`, age
 
 Wtedy agent może uruchomić `sowa review --approve`, ale podpisu bez człowieka nie złoży.
 
+Klucze do sprawdzenia podpisu nie mogą leżeć w repozytorium, bo agent dopisałby tam swój. Wpis `"@login"` w `approvers` bierze klucze do podpisu (Signing keys) z konta na GitHubie, a adres e-mail wiersze z pliku `allowed_signers` spoza repozytorium, wskazanego przez `SOWA_ALLOWED_SIGNERS` albo `git config gpg.ssh.allowedSignersFile`. Odwołanie osoby to usunięcie jej z `approvers` (zmiana w `sowa.toml`, więc też wymaga zatwierdzenia) albo usunięcie klucza z konta. Jak to działa w kompilatorze, opisuje [compiler/README.md](../compiler/README.md#przegląd-i-zatwierdzanie).
+
 ## Drugi agent jako recenzent
 
 Pomysł: jeden agent pisze kod, drugi, „pewniejszy”, go zatwierdza. Człowiek miałby wtedy mniej pracy. Sprawdzi się to jako filtr przed człowiekiem, ale nie zamiast niego:
@@ -152,7 +154,6 @@ Zysk jest największy przy małych, częstych zmianach: nowa czysta funkcja, dod
 
 ## Jak to robią inni
 
-- **[Aver](https://github.com/jasisz/aver)**: przegląd kontraktów zamiast kodu jako zalecany sposób pracy, bez ochrony przed zmianą kontraktu albo testu przez agenta i bez sprawdzania, czy kontrakt jest luźniejszy niż na `main`.
 - **Design by contract** (Eiffel, SPARK, TLA+): kontrakt jest częścią kodu i jest sprawdzany, ale żadne narzędzie nie pokazuje recenzentowi, że kontrakt w zmianie jest słabszy niż przed nią.
 - **[cargo-vet](https://github.com/mozilla/cargo-vet)** (Mozilla): audyty zależności zapisane w pliku z informacją, kto i co sprawdził. Dotyczy cudzych bibliotek, a nie własnego kodu.
 - **Narzędzia do zmian w API** ([buf breaking](https://buf.build/docs/breaking/), [cargo-semver-checks](https://github.com/obi1kenobi/cargo-semver-checks)): wykrywają zmiany w interfejsie, które psują wywołujących. `sowa review` robi coś podobnego dla warunków i uprawnień, z solverem zamiast listy reguł.
@@ -166,4 +167,3 @@ Zysk jest największy przy małych, częstych zmianach: nowa czysta funkcja, dod
 - Duża zmiana, przy której warto zapytać o kierunek wcześniej: wystarczy komentarz w szkicu PR z bieżącym `sowa review`, czy potrzebne jest coś więcej?
 - Co z konfliktami w `docs.lock`, gdy dwa PR zatwierdzają różne opisy? Może jeden wiersz na symbol i sortowanie, żeby merge był prosty.
 - Agent-recenzent: czy „usunięty test” zastąpiony mocniejszym `property` też musi iść do człowieka? Solver mógłby sprawdzić, że nowy test obejmuje stary.
-- Format podpisu (SSH jak w gicie?) i jak dodawać albo odwoływać osoby z `approvers`.

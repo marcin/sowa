@@ -1,0 +1,107 @@
+# Kompilator i przykładowe projekty: build, testy, zatwierdzenie specyfikacji i raport sowa review w PR.
+# Przykłady to projekty examples/*/sowa.toml; examples/*.sowa to szkice do czytania, nie do kompilacji.
+name: sowa
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: sowa-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sowa:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      # Głowa PR, nie commit scalenia z main: zatwierdzenie i review dotyczą tego, co jest w PR.
+      # fetch-depth 0, bo zatwierdzony commit musi być w repozytorium.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      # Programy z Db linkują systemowy libsqlite3.
+      - run: sudo apt-get update -q && sudo apt-get install -yq libsqlite3-dev
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            compiler/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('compiler/Cargo.lock', 'compiler/src/**') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      - name: Kompilator
+        working-directory: compiler
+        run: |
+          cargo build --release
+          cargo test --release
+          echo "$PWD/target/release" >> "$GITHUB_PATH"
+
+      - name: sowa check i sowa test
+        if: github.event_name != 'pull_request_review'
+        run: |
+          for t in examples/*/sowa.toml; do
+            d=$(dirname "$t")
+            echo "::group::$d"
+            sowa check "$d"
+            sowa test "$d"
+            echo "::endgroup::"
+          done
+
+      - name: sowa check --ci
+        if: github.event_name != 'push'
+        run: |
+          for t in examples/*/sowa.toml; do
+            sowa check --ci "$(dirname "$t")"
+          done
+
+      # Jeden komentarz w PR, poprawiany przy każdym pushu. W PR z forka token nie może pisać,
+      # więc wtedy raport zostaje tylko w logu.
+      - name: Raport sowa review
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          PR: ${{ github.event.pull_request.number }}
+          BASE: ${{ github.event.pull_request.base.ref }}
+        run: |
+          base=$(git merge-base "origin/$BASE" HEAD)
+          marker='<!-- sowa review -->'
+          {
+            echo "$marker"
+            echo "## sowa review"
+            echo
+            echo "Zmiany w specyfikacji: \`$BASE\` (${base:0:7}) → głowa PR ($(git rev-parse --short HEAD))."
+            for t in examples/*/sowa.toml; do
+              d=$(dirname "$t")
+              echo
+              echo "### $d"
+              echo
+              echo '```'
+              sowa review --base "$base" "$d" 2>&1 || true
+              echo '```'
+            done
+          } > review.md
+          cat review.md
+          # GitHub przyjmuje komentarz do 65536 znaków.
+          if [ "$(wc -c < review.md)" -gt 60000 ]; then
+            head -c 60000 review.md > r && mv r review.md
+            printf '\n```\n\nRaport ucięty, cały jest w logu joba.\n' >> review.md
+          fi
+          id=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" \
+            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\"))) | .id" | head -1)
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F body=@review.md > /dev/null
+          else
+            gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F body=@review.md > /dev/null
+          fi

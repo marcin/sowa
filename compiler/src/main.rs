@@ -1,4 +1,5 @@
-// sowa check [--ci] | build | run [--fake NAZWA] | test | review --base REF  [--bun] [--panic-abort] [KATALOG]
+// sowa check [--ci] | build | run [--fake NAZWA] | test | review --base REF | review --approve
+//   [--bun] [--panic-abort] [KATALOG]
 //
 // Kompilator czyta projekt (sowa.toml, src/, impl/, docs/), sprawdza go, tłumaczy program albo
 // testy na Rusta i kompiluje je rustc do pliku wykonywalnego w <projekt>/.sowa/. Z --bun zamiast
@@ -17,6 +18,7 @@ mod moves;
 mod parser;
 mod project;
 mod review;
+mod sign;
 mod solver;
 mod toml;
 
@@ -36,10 +38,13 @@ polecenia:
   review --confirm-docs[=OPIS]
                         zapisuje w docs.lock, że opisy (wszystkie oczekujące albo OPIS, np.
                         uzytkownik/faktury.md#rabat) są przejrzane przy bieżących sygnaturach
+  review --approve      zatwierdza specyfikację z HEAD pustym commitem podpisanym kluczem SSH
+                        (przy [review] sign = true, praca bez PR albo na jednym koncie)
 
 check --ci sprawdza też, czy specyfikacja nie zmieniła się od zatwierdzenia PR: zatwierdzenie
   czyta z API GitHuba przez gh (GITHUB_REPOSITORY, GITHUB_REF, GH_TOKEN). --approved-at COMMIT
-  podaje zatwierdzony commit ręcznie i porównuje go z katalogiem roboczym.
+  podaje zatwierdzony commit ręcznie i porównuje go z katalogiem roboczym. Przy [review] sign = true
+  zatwierdzeniem jest najnowszy commit z review --approve z ważnym podpisem osoby z approvers.
 
 Program i testy kompilują się do Rusta (rustc).
 --bun kompiluje do JS dla Buna: testy ruszają od razu, bez rustc, ale program jest wolniejszy.
@@ -80,6 +85,7 @@ fn main() -> ExitCode {
                 o.confirm.get_or_insert_with(Vec::new).push(a["--confirm-docs=".len()..].to_string())
             }
             "--ci" => o.ci = true,
+            "--approve" => o.approve = true,
             "--fake" if i + 1 < args.len() => {
                 fakes.push(args[i + 1].clone());
                 i += 2;
@@ -121,12 +127,13 @@ fn main() -> ExitCode {
     if o.approved_at.is_some() {
         o.ci = true;
     }
-    if (o.base.is_some() || o.confirm.is_some()) && cmd != "review" {
-        eprintln!("--base i --confirm-docs działają tylko z sowa review");
+    if (o.base.is_some() || o.confirm.is_some() || o.approve) && cmd != "review" {
+        eprintln!("--base, --confirm-docs i --approve działają tylko z sowa review");
         return ExitCode::from(2);
     }
-    if cmd == "review" && o.base.is_none() == o.confirm.is_none() {
-        eprintln!("sowa review potrzebuje --base REF albo --confirm-docs\n\n{}", USAGE);
+    let modes = [o.base.is_some(), o.confirm.is_some(), o.approve].iter().filter(|x| **x).count();
+    if cmd == "review" && modes != 1 {
+        eprintln!("sowa review potrzebuje jednej z opcji: --base REF, --confirm-docs albo --approve\n\n{}", USAGE);
         return ExitCode::from(2);
     }
     if panic_abort && !rust {
@@ -155,6 +162,7 @@ struct Opts {
     confirm: Option<Vec<String>>,
     ci: bool,
     approved_at: Option<String>,
+    approve: bool,
 }
 
 fn run(cmd: &str, dir: &Path, fakes: &[String], rust: bool, panic_abort: bool, o: &Opts) -> Result<ExitCode, String> {
@@ -182,6 +190,9 @@ fn run(cmd: &str, dir: &Path, fakes: &[String], rust: bool, panic_abort: bool, o
     errors.append(&mut g.diags);
     let (mut cerr, mut warns) = check::check(&proj, &env);
     warns.extend(docslock::warnings(&proj, &env));
+    let (mut rerr, mut rwarn) = sign::diags(&proj);
+    cerr.append(&mut rerr);
+    warns.append(&mut rwarn);
     errors.append(&mut cerr);
     errors.sort_by(|a, b| (&a.file, a.line).cmp(&(&b.file, b.line)));
     errors.dedup_by(|a, b| a.file == b.file && a.line == b.line && a.msg == b.msg);
@@ -259,6 +270,10 @@ fn run(cmd: &str, dir: &Path, fakes: &[String], rust: bool, panic_abort: bool, o
 fn review(proj: &project::Project, env: &env::Env, o: &Opts) -> Result<ExitCode, String> {
     if let Some(base) = &o.base {
         print!("{}", review::review(proj, env, base)?);
+        return Ok(ExitCode::SUCCESS);
+    }
+    if o.approve {
+        println!("{}", sign::approve(proj)?);
         return Ok(ExitCode::SUCCESS);
     }
     let only = o.confirm.clone().unwrap_or_default();
@@ -377,6 +392,7 @@ fn value_json(v: &toml::Value) -> String {
         toml::Value::Str(s) => codegen::js_str(s),
         toml::Value::Int(n) => n.to_string(),
         toml::Value::Bool(b) => b.to_string(),
+        toml::Value::List(xs) => format!("[{}]", xs.iter().map(value_json).collect::<Vec<_>>().join(", ")),
         toml::Value::Table(kv) => {
             let items: Vec<String> = kv.iter().map(|(k, v)| format!("{}: {}", codegen::js_str(k), value_json(v))).collect();
             format!("{{{}}}", items.join(", "))

@@ -28,7 +28,7 @@ Dane pochodzą z katalogu [agentlanguages.dev](https://agentlanguages.dev) (stan
 |---|---|---|---|---|---|---|
 | [**NanoLang**](https://github.com/jordanhubbard/nanolang) | weryfikacyjny | testy „cienie” przy kodzie, 193 twierdzenia w Coq | Coq | 629 | działa | nacisk na sprawdzalność |
 | [**Vera**](https://github.com/aallan/vera) | weryfikacyjny | obowiązkowe kontrakty, typowane odwołania zamiast nazw, wywołania LLM jako efekt | Z3 | 414 | działa | kontrakty i efekty |
-| [**Aver**](https://github.com/jasisz/aver) | weryfikacyjny | „AI pisze, człowiek przegląda kontrakty i intencję”: efekty, `verify`, bloki `decision`, widok kontraktów `aver context`, dozwolone hosty w `aver.toml` | eksport do Lean 4 i Dafny | 60 | działa | **ta sama teza**, zob. niżej |
+| [**Aver**](https://github.com/jasisz/aver) | weryfikacyjny | „AI pisze, człowiek przegląda kontrakty i intencję”: efekty, `verify`, bloki `decision`, widok kontraktów `aver context`, dozwolone hosty w `aver.toml` | eksport do Lean 4 i Dafny | 60 | działa | **ta sama teza** |
 | [**Thermite**](https://github.com/dollspace-gay/Thermite) | weryfikacyjny | kontrakty najpierw (`req` / `ens` / `fx`), generuje Rusta | Verus, Lean | 54 | działa | niemal ta sama sygnatura |
 | [**AILANG**](https://github.com/sunholo-data/ailang) | weryfikacyjny | efekty jako uprawnienia, inferencja typów HM, kod pisany przez AI | typy | 34 | działa | efekty |
 | [**Vow**](https://github.com/vow-lang/vow) | weryfikacyjny | sprawdzane maszynowo „przysięgi” | ESBMC (bounded model checking) | 8 | działa | kontrakty |
@@ -60,9 +60,7 @@ Tu Sowa ma najwięcej własnego. Tabela zestawia każdą z tych rzeczy z tym, co
 
 ## Wnioski
 
-- **Gwarancje typów opierają się na sprawdzonych pomysłach.** Kontrakty, efekty, uprawnienia jako wartości i typy z warunkami działają już w Verze, Thermite, Averze, Prove, Ponym i Australu, z kompilatorami i solverami. Sowa nie musi więc udowadniać, że to w ogóle działa, i może z ich doświadczeń korzystać. Swoją nowość wnosi w tym, jak człowiek zatwierdza kod.
-- **Czytelność to słaba przewaga.** Większość tych projektów optymalizuje pod model: typowane odwołania zamiast nazw w Verze, JSON zamiast tekstu w [X07](https://github.com/x07lang/x07), jednoznakowe instrukcje w [Severze](https://github.com/AvitalTamir/sever). Sowa projektuje składnię pod recenzenta: `α`, stałe bez słowa kluczowego z `var`, `as ... or`, zero skrótów. Składnię łatwo jednak skopiować.
-- **Wyróżnia ją to, że zatwierdzanie jest egzekwowane.** Aver ma tę samą tezę („AI pisze, człowiek przegląda kontrakty”), ale przegląd jest tam zaleceniem: agent może zmienić kontrakt albo test i nic tego nie oznaczy. W Sowie specyfikacja jest granicą: kod nie wyjdzie poza nią, a jej zmiana nie wejdzie bez zgody człowieka. Tego połączenia nie ma w żadnym z przejrzanych projektów.
-- **Aver warto śledzić.** To najbliższy projekt: bloki `decision` odpowiadają `why` i plikom w `decyzje/`, a `[effects.Http] hosts` odpowiada `[resources]`. Część pomysłów da się przenieść w obie strony.
-- **Popularność:** najwięcej gwiazdek w nurcie weryfikacyjnym ma Zero (5,4 tys.+), a dalej NanoLang (629) i Vera (414).
-- **Dojrzałość:** realne zainteresowanie mają tylko Zero, [Fabro](https://github.com/fabro-sh/fabro) (orkiestracja, 1,6 tys.+) i MoonBit. Reszta to projekty z kilkudziesięcioma gwiazdkami lub mniej.
+- **Gwarancje typów opierają się na sprawdzonych pomysłach.** Kontrakty, efekty, uprawnienia jako wartości i typy z warunkami działają już w kilku projektach z tabel wyżej, z kompilatorami i solverami. Sowa nie musi więc udowadniać, że to w ogóle działa. Swoją nowość wnosi w tym, jak człowiek zatwierdza kod.
+- **Czytelność to słaba przewaga.** Większość tych projektów optymalizuje pod model: typowane odwołania zamiast nazw, JSON zamiast tekstu, jednoznakowe instrukcje. Sowa projektuje składnię pod recenzenta: `α`, stałe bez słowa kluczowego z `var`, `as ... or`, zero skrótów. Składnię łatwo jednak skopiować.
+- **Wyróżnia ją to, że zatwierdzanie jest egzekwowane.** W Sowie specyfikacja jest granicą: kod nie wyjdzie poza nią, a jej zmiana nie wejdzie bez zgody człowieka. Tego połączenia nie ma w żadnym z przejrzanych projektów.
+- **Popularność i dojrzałość:** ponad tysiąc gwiazdek ma tylko kilka projektów z tabel. Reszta to projekty z kilkuset gwiazdkami lub mniej.
