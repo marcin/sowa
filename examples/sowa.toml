@@ -4,3 +4,8 @@
 name = "examples"
 src  = "."
 docs = "docs"
+
+# Zasoby, czyli jedyne uprawnienia, jakie program dostaje (main w 03_capabilities.sowa).
+[resources]
+db   = { type = "Db", url = "postgres://localhost/examples" }
+mail = { type = "Mailer", server = "smtp.firma.pl:587" }

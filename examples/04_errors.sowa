@@ -4,23 +4,18 @@ type Price         = Money(α > 0)
 type PaymentError  = CardDeclined | NoFunds | Timeout
 type CheckoutError = Declined | TryLater
 
-fn charge(card: Card, amount: Price) -> Receipt | PaymentError
-  effects Net
+fn charge(card: Card, amount: Price, bank: Http) -> Receipt | PaymentError
 
 // try: jeśli wynik jest błędem, funkcja kończy się i zwraca go wyżej.
-fn pay(user: User, amount: Price) -> Receipt | PaymentError
-  effects Net, Db.write
-
-  receipt = try charge(user.card, amount)
-  save_receipt(receipt)
+fn pay(user: User, amount: Price, bank: Http, db: Db) -> Receipt | PaymentError
+  receipt = try charge(user.card, amount, bank)
+  save_receipt(receipt, db)
   return receipt
 
 // match: obsługa na miejscu. Każdy przypadek musi być obsłużony.
 // Po dodaniu np. Fraud do PaymentError ten match przestanie się kompilować.
-fn pay_or_retry(user: User, amount: Price) -> Receipt | CheckoutError
-  effects Net, Db.write
-
-  match pay(user, amount)
+fn pay_or_retry(user: User, amount: Price, bank: Http, db: Db) -> Receipt | CheckoutError
+  match pay(user, amount, bank, db)
     Receipt r    => return r
     CardDeclined => return Declined
     NoFunds      => return Declined

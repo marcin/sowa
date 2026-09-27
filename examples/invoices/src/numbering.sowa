@@ -8,14 +8,10 @@ fn format_number(year: Int, seq: Int(α > 0)) -> InvoiceNumber
   example format_number(2026, 42) == "FV/2026/0042"
 
 fn save_with_next_number(buyer: Buyer, lines: List<Line>(len(α) > 0), discount: Percent,
-                         issued_on: Date) -> Invoice | NumberingFailed
-  effects Db.read, Db.write
-
+                         issued_on: Date, db: Db) -> Invoice(α.status == Issued) | NumberingFailed
   desc Nadaje kolejny numer i zapisuje fakturę w jednej transakcji.
   why decyzje/002-numeracja-bez-luk.md
 
-fn last_invoice_seq(year: Int) -> Int(α >= 0)
-  effects Db.read
+fn last_invoice_seq(year: Int, db: DbRead) -> Int(α >= 0)
 
-fn save_invoice(invoice: Invoice)
-  effects Db.write
+fn save_invoice(invoice: Invoice, db: Db)

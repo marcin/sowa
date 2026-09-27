@@ -15,17 +15,17 @@ Reguły są uproszczone na potrzeby przykładu.
 
 Kreski i spacje usuwamy przy wejściu ({read_nip}), a w systemie trzymamy tylko cyfry ({Nip}). Dzięki temu porównanie dwóch NIP-ów to zwykłe `==`.
 
-## Obliczenia i efekty
+## Obliczenia i uprawnienia
 
-Obliczenia są czyste, a efekty siedzą w kilku wyznaczonych plikach. Dzięki temu logikę faktury (sumy, VAT, rabaty) da się testować bez bazy i sieci, a recenzent wie, gdzie szukać zapisów i wysyłki.
+Obliczenia są czyste, a baza, zegar i poczta przychodzą do funkcji jako parametry (`db: Db`, `clock: Clock`, `mail: Mailer`). Dzięki temu logikę faktury (sumy, VAT, rabaty) da się testować bez bazy i sieci, a recenzent widzi w sygnaturze, co funkcja może zrobić.
 
-Które pliki mogą mieć jakie efekty, zapisaliśmy w `sowa.toml` w sekcji `[effects]`, więc pilnuje tego kompilator, a nie ten opis. Tu jest tylko uzasadnienie:
+Jakie zasoby ma program, stoi w `sowa.toml` w sekcji `[resources]`. Runtime przekazuje je do `main` ({main}), a dalej płyną tylko przez parametry, więc pilnuje tego kompilator, a nie ten opis. Tu jest tylko uzasadnienie:
 
-- `Net(mail)` tylko w `src/sending.sowa`, bo wysyłka jest osobnym krokiem ([decyzja 003](decyzje/003-wysylka-osobno.md)).
-- `Clock` tylko w `src/issuing.sowa`: datę odczytujemy raz, przy wystawieniu, a dalej przekazujemy ją jako zwykłą wartość.
-- Każda nowa funkcja, która zapisuje do bazy albo łączy się z siecią, wymaga zatwierdzenia przez człowieka (`approve = true`, lista w `effects.lock`). Zatwierdza się przez `sowa review`, a PR ze zmianą w `effects.lock` wymaga zgody właściciela z `.github/CODEOWNERS`.
+- `Mailer` dostaje tylko {send_invoice}, bo wysyłka jest osobnym krokiem ([decyzja 003](decyzje/003-wysylka-osobno.md)).
+- `Clock` dostaje tylko {issue_invoice}: datę odczytuje się raz, przy wystawieniu, a dalej przekazuje jako zwykłą wartość.
+- Funkcje, które tylko czytają z bazy, dostają `DbRead` zamiast `Db`, np. {last_invoice_seq}.
 
-Nowy efekt albo nowy plik z efektami to zmiana tego założenia: trzeba poprawić `sowa.toml` i opisać to tutaj.
+Nowy zasób albo nowa funkcja w `src/` z uprawnieniem to zmiana tego założenia. `sowa review` pokazuje ją na samej górze, a PR wymaga zgody właściciela z `.github/CODEOWNERS`.
 
 ## Błędy
 

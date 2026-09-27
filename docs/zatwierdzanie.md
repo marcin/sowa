@@ -1,8 +1,6 @@
 # Zatwierdzanie: agent pisze, człowiek zatwierdza
 
-Zasada nadrzędna Sowy brzmi: agent pisze, człowiek zatwierdza. Ten dokument opisuje, jak „zatwierdza” działa w praktyce. Składnia i reguły są w [zalozenia.md](zalozenia.md#zatwierdzanie-sowa-review), a tu jest całość w jednym miejscu, z uzasadnieniem.
-
-To, co tu opisane (`approve`, `effects.lock`, mapa efektów modułu), służy do czytania kodu: w trybie `code` i w plikach, które w trybie `spec` człowiek i tak czyta (`[review] read`). W domyślnym trybie `spec` zatwierdzenie to przede wszystkim review zmian w `src/` i `docs/`, a `approve` tylko przesuwa zmianę na górę listy w `sowa review`. Zob. [tryby.md](tryby.md).
+Zasada nadrzędna Sowy brzmi: agent pisze, człowiek zatwierdza. Ten dokument opisuje, jak „zatwierdza” działa w praktyce. Składnia i reguły są w [zalozenia.md](zalozenia.md#zatwierdzanie), a tu jest całość w jednym miejscu, z uzasadnieniem.
 
 ## Problem
 
@@ -10,107 +8,86 @@ Agent potrafi napisać dużo kodu szybko. Człowiek nie przeczyta każdej linii,
 
 Druga trudność: agent ma terminal. Każde zabezpieczenie, które da się „kliknąć” poleceniem albo edycją pliku, agent może obejść. Nie musi to być złośliwość. Wystarczy, że chce, żeby build przeszedł.
 
+Trzecia: czas człowieka. Zatwierdzanie specyfikacji przed kodem zmusza do czytania pomysłu, który w trakcie implementacji i tak się zmieni. Zatwierdzanie po kodzie grozi tym, że człowiek przepuści specyfikację, którą agent dopasował do kodu.
+
 ## Co wymaga zatwierdzenia
 
-Tylko rzeczy, których kompilator nie sprawdzi sam i które zmieniają znaczenie programu:
-
-| Co | Dlaczego człowiek | Gdzie zapisane |
+| Co | Dlaczego człowiek | Gdzie |
 |---|---|---|
-| funkcja dostaje efekt oznaczony `approve` (np. `Net`, `Db.write`) | kompilator wie, że funkcja łączy się z siecią, ale nie wie, czy powinna | `effects.lock` |
-| w module z `[review.files]` pojawia się nowy efekt albo nowe miejsce, w którym efekt powstaje | człowiek chce znać mapę efektów modułu, ale nie przeglądać funkcji po kolei | `effects.lock` |
-| zmienia się sygnatura, warunek albo efekt funkcji opisanej w `.md` | tekstu nie da się sprawdzić, da się tylko wykryć, że mógł się zdezaktualizować | `docs.lock` |
-| zmienia się polityka projektu (`[effects]`, `[limits]`, `[review]`) | to reguły, które pilnują całej reszty | `sowa.toml` |
+| specyfikacja: typy, warunki, sygnatury z uprawnieniami, `example`, `property` | kompilator sprawdzi, że kod jej się trzyma, ale nie wie, czy to dobra specyfikacja | `src/` |
+| dokumentacja i decyzje | tekstu nie da się sprawdzić | `docs/` |
+| opis funkcji, której sygnatura się zmieniła | tekst mógł się zdezaktualizować | `docs.lock` |
+| zasoby i limity | adres serwera pocztowego albo bazy to decyzja człowieka | `sowa.toml` |
+| opcjonalnie: kod wybranych modułów | gdy poprawności nie da się wyrazić w specyfikacji | pliki z `impl/` dopisane do CODEOWNERS |
 
-Wszystko inne, czyli typy z warunkami, efekty w sygnaturach, wyczerpujący `match` i przykłady, sprawdza kompilator. Człowiek nie musi.
+Wszystko inne, czyli to, że kod trzyma się typów, uprawnień i przykładów, sprawdza kompilator. Człowiek nie musi.
 
-## Jak to działa
+## Zatwierdzenie na końcu
 
-**1. `sowa check` mówi, co czeka.** Lokalnie jest to ostrzeżenie, żeby nie blokować pracy, a w CI (`sowa check --ci`) błąd.
+**1. Agent buduje.** W jednym PR zmienia `src/`, `impl/` i `docs/`, tyle razy, ile trzeba. Specyfikacja zmienia się razem z kodem. PR jest szkicem i niczego się w nim jeszcze nie zatwierdza. CI przy każdym pushu odświeża komentarz z `sowa review`, więc człowiek może zajrzeć wcześniej, ale nie musi.
 
-```
-ostrzeżenie: notify_buyer (src/sending.sowa:21) dostała efekt Net i czeka na zatwierdzenie
-ostrzeżenie: uzytkownik/faktury.md#rabat nie był przeglądany od zmiany line_net
-             uruchom: sowa review
-```
+**2. Całość działa.** Testy przechodzą, człowiek może program uruchomić albo obejrzeć podgląd. Agent oznacza PR jako gotowy.
 
-**2. Człowiek przegląda przez `sowa review`.** Polecenie pokazuje po kolei wszystko, co czeka, razem z kontekstem potrzebnym do decyzji: sygnaturę, efekty, `desc`, treść sekcji z `why` i miejsca wywołania. Zatwierdzenie zapisuje w pliku `.lock` hash, osobę i datę.
+**3. Człowiek zatwierdza raz.** Czyta wynik `sowa review --base main` (zob. niżej), w razie potrzeby zagląda do plików w `src/` i zatwierdza PR. Lista pokazuje zmianę netto względem `main`, a nie historię poprawek w PR. Jeśli agent w trakcie pracy poluzował warunek albo usunął test, to jest na górze listy, z kontrprzykładem. Jeśli osłabienie jest niepożądane, człowiek je odrzuca, a agent poprawia kod, a nie specyfikację.
 
-```
-[1/2] notify_buyer  src/sending.sowa:21  (nowa funkcja)
-
-  fn notify_buyer(invoice: Invoice) -> Sent | SendError
-    effects Net                                  ← wymaga zatwierdzenia (sowa.toml)
-
-    desc Wysyła nabywcy przypomnienie o płatności.
-    why decyzje/004-przypomnienia.md             → pokazać? [enter]
-
-  wywoływana z: remind_unpaid (src/payments.sowa:40)
-
-  Zatwierdzić Net dla notify_buyer? [t]ak / [n]ie / [p]omiń
-```
-
-**3. Review PR egzekwuje, że zatwierdził człowiek.** Pliki `*.lock` i `sowa.toml` należą do właściciela w CODEOWNERS. Agent może przygotować wpis, ale PR nie wejdzie bez zgody człowieka. Działa to tylko wtedy, gdy agent ma osobne konto (zob. [Kiedy CODEOWNERS nie wystarcza](#kiedy-codeowners-nie-wystarcza)).
+**4. Po zatwierdzeniu specyfikacja stoi.** Agent może jeszcze poprawiać `impl/`. `sowa check --ci` pobiera z API GitHuba ostatnie zatwierdzenie PR przez właściciela z CODEOWNERS i commit, na którym je złożył. Potem sprawdza, czy od tego commitu zmienił się którykolwiek plik z właścicielem:
 
 ```
-# .github/CODEOWNERS
-sowa.toml   @marcin
-*.lock      @marcin
+błąd: specyfikacja zmieniła się po zatwierdzeniu (zatwierdzone na 3f2a91c)
+        src/issuing.sowa
+      potrzebne ponowne zatwierdzenie PR
 ```
+
+Przy ponownym zatwierdzeniu `sowa review --base 3f2a91c` pokazuje tylko to, co zmieniło się od poprzedniego.
+
+Ustawienia w ochronie `main`:
+
+- `sowa check --ci` jest wymaganym checkiem,
+- wymagane jest review od właściciela z CODEOWNERS,
+- „Dismiss stale approvals when new commits are pushed” jest **wyłączone**. Gdyby było włączone, każda poprawka w `impl/` kasowałaby zatwierdzenie, a człowiek musiałby zatwierdzać kod, którego nie czyta. Zmianę specyfikacji po zatwierdzeniu i tak wyłapie check z kroku 4.
+
+Dlaczego nie odwrotnie, czyli specyfikacja zatwierdzana przed kodem: człowiek czytałby pomysł, który nie wiadomo, czy zadziała. W trakcie implementacji prawie zawsze wychodzi coś, co zmienia specyfikację, więc zatwierdzałby dwa razy, a za pierwszym razem na próżno. Zatwierdzanie gotowej, działającej zmiany jest tańsze, a pułapkę dopasowania specyfikacji do kodu rozbraja porównanie z `main`.
+
+## `sowa review`: zmiany w znaczeniu
+
+```
+$ sowa review --base main
+
+Specyfikacja (src/, docs/, sowa.toml): 5 zmian
+
+  [1] uprawnienie     send_reminder  src/sending.sowa:24   nowa funkcja z Mailer (mail: smtp.firma.pl:587)
+  [2] osłabienie      Percent        src/types.sowa:5      α <= 100  →  α <= 1000
+                                                           dopuszcza np. 101
+  [3] usunięty test   totals         src/invoice.sowa:50   property totals(lines, discount).net <= totals(lines, 0).net
+  [4] rozszerzenie    read_nip       src/types.sowa:24     parametr: String(len(α) <= 20)  →  String
+  [5] zwykłe          line_net       src/invoice.sowa:38   nowy example
+
+Opisy do przejrzenia (docs.lock): uzytkownik/faktury.md#rabat
+```
+
+Kolejność jest stała: uprawnienie, osłabienie, usunięty test, rozszerzenie, zwykłe (tabela w [zalozenia.md](zalozenia.md#sowa-review)). Nie trzeba niczego ustawiać: nowe uprawnienie jest zawsze na górze, bo zawsze znaczy „kod może zrobić coś, czego wcześniej nie mógł”.
+
+**Osłabienie sprawdza solver.** Dla każdego zmienionego warunku `sowa review` pyta, czy stary warunek wynika z nowego:
+
+- wynika: warunek jest taki sam albo ostrzejszy,
+- nie wynika: warunek jest luźniejszy, a solver podaje kontrprzykład, np. „dopuszcza 101”,
+- solver nie wie, np. przy arytmetyce nieliniowej: zmiana trafia do osłabień z dopiskiem „nie udało się porównać”.
+
+Kierunek zależy od miejsca. Luźniejszy warunek w definicji typu albo w wyniku to osłabienie, bo reszta programu na nim polega. Luźniejszy warunek na parametrze to rozszerzenie: funkcja przyjmuje więcej danych, co widać, ale nic nie psuje. Ostrzejszy warunek na parametrze wyłapie kompilator u każdego wywołującego.
+
+## Opisy: `docs.lock`
+
+Tekstu nie da się sprawdzić, ale da się wykryć, że mógł się zdezaktualizować. `docs.lock` trzyma hash sygnatury z warunkami i uprawnieniami z chwili, gdy człowiek potwierdził opis. Po zmianie sygnatury `sowa check` wskazuje akapity do przejrzenia, a `sowa review` na końcu pyta o każdy. Szczegóły w [zalozenia.md](zalozenia.md#co-sprawdza-kompilator).
+
+To jedyny plik z zatwierdzeniami w projekcie. Leży pod CODEOWNERS, więc agent może przygotować wpis, ale PR bez zgody właściciela nie wejdzie.
 
 ## Dlaczego tak
 
-- **Nie ufamy plikowi, ufamy review.** Sam `.lock` niczego nie gwarantuje, bo agent może go edytować. Review PR już istnieje w każdym zespole i agent nie zatwierdzi sam swojego PR, o ile działa na własnym koncie (zob. [Kiedy CODEOWNERS nie wystarcza](#kiedy-codeowners-nie-wystarcza)). Sowa nie wymyśla nowego mechanizmu uprawnień, tylko mówi recenzentowi, na co patrzeć.
-- **Diff pliku `.lock` to lista kontrolna.** Zamiast przeglądać 800 linii kodu, recenzent widzi w `effects.lock` jeden nowy wiersz: „notify_buyer: Net”. Tego nie przeoczy.
-- **Zatwierdza się znaczenie, nie kod.** Hash obejmuje sygnaturę i efekty, a nie ciało funkcji. „Ta funkcja może łączyć się z siecią” zatwierdza się raz, a nie po każdej poprawce w środku. Dla wrażliwych efektów jest ostrzejsza opcja `approve = "body"`.
-- **Polityka też jest chroniona.** Agent nie poluzuje `allowed` w `sowa.toml`, żeby ominąć regułę, bo ten plik też wymaga zgody właściciela.
-- **Agent wie, czego nie robić.** Reguła w AGENTS.md mówi, że agent nie uruchamia `sowa review`, nie edytuje plików `*.lock` ani polityki w `sowa.toml`, a oczekujące zatwierdzenia przekazuje człowiekowi. Reguła nie jest zabezpieczeniem, zabezpieczeniem jest CODEOWNERS. Dzięki regule uczciwy agent nie marnuje jednak czasu recenzenta.
-
-## Zatwierdzanie modułu zamiast funkcji
-
-`approve` na efekcie działa na poziomie funkcji: każda nowa funkcja z `Db.write` czeka osobno. W dużym module to dużo zatwierdzeń, a człowiek często chce wiedzieć tylko jedno: gdzie w module dzieje się coś poza liczeniem.
-
-Do tego służy mapa efektów modułu. `sowa effects` pokazuje ją zawsze:
-
-```
-$ sowa effects src/issuing.sowa
-
-src/issuing.sowa   dozwolone: Db.read, Db.write, Clock (sowa.toml)
-
-  Clock     issue_invoice   przez current_date()
-  Db.read   issue_invoice   przez save_with_next_number (src/numbering.sowa)
-  Db.write  issue_invoice   przez save_with_next_number (src/numbering.sowa)
-
-  czyste: read_buyer
-```
-
-Moduł wpisany w `[review.files]` w `sowa.toml` wymaga zatwierdzenia tej mapy:
-
-```toml
-[review.files]
-"src/issuing.sowa" = "effects"
-```
-
-`sowa review` pokazuje wtedy diff mapy, a nie funkcje:
-
-```
-[1/1] src/numbering.sowa  (mapa efektów)
-
-    Db.read   last_invoice_seq
-    Db.write  save_invoice
-  + Db.write  reset_numbering        (nowa funkcja)
-
-  Zatwierdzić mapę efektów? [t]ak / [n]ie / [f]unkcje / [p]omiń
-```
-
-Treść funkcji jest pod `[f]`, ale nie trzeba do niej zaglądać. W `effects.lock` zapisuje się jeden wiersz na efekt w module:
-
-```
-src/numbering.sowa   Db.write   save_invoice, reset_numbering   91c3d7  reviewer@intum.com     2026-09-27
-```
-
-Ponownego zatwierdzenia wymaga tylko nowy efekt albo nowe miejsce, w którym efekt powstaje. Zmiana w ciele funkcji, nowa funkcja czysta albo nowa funkcja, która tylko woła `save_invoice`, nic nie zmieniają. Mapę widać też w PR: diff pliku `effects.lock` to dokładnie te wiersze.
-
-To lżejsze niż `approve` na częstym efekcie. Zamiast zatwierdzać każdą funkcję z `Db.write` osobno, człowiek zatwierdza jedną listę na moduł.
+- **Gwarancję daje review, a nie plik.** Review PR już istnieje w każdym zespole i agent nie zatwierdzi sam swojego PR, o ile działa na własnym koncie (zob. [Kiedy CODEOWNERS nie wystarcza](#kiedy-codeowners-nie-wystarcza)). Sowa nie wymyśla nowego mechanizmu uprawnień, tylko mówi recenzentowi, na co patrzeć, i pilnuje, żeby po zatwierdzeniu specyfikacja się nie zmieniła.
+- **Zatwierdza się znaczenie, nie kod.** Człowiek zatwierdza „ta funkcja może wysyłać e-maile przez smtp.firma.pl”, a nie każdą poprawkę w jej środku.
+- **Jedno zatwierdzenie na PR.** Nie ma zatwierdzania funkcji po kolei, więc nie ma zmęczenia zatwierdzaniem, w którym po tygodniu klika się bez czytania.
+- **Polityka też jest chroniona.** Agent nie doda zasobu w `sowa.toml`, bo ten plik też wymaga zgody właściciela.
+- **Proces jest sprawdzany.** `sowa check` sprawdza, czy CODEOWNERS obejmuje `src/`, `docs/`, `sowa.toml` i `docs.lock`. Bez tego wszystkie powyższe zabezpieczenia byłyby tylko umową.
 
 ## Kiedy CODEOWNERS nie wystarcza
 
@@ -122,14 +99,14 @@ CODEOWNERS chroni tylko wtedy, gdy agent i człowiek to **dwie różne tożsamo�
 CODEOWNERS działa, gdy spełnione są wszystkie warunki:
 
 1. agent ma **osobne konto** (konto bota, GitHub App albo osobny token) bez prawa zatwierdzania i scalania,
-2. gałąź `main` ma ochronę: wymagane review od właściciela z CODEOWNERS i **brak wyjątku dla adminów**,
+2. gałąź `main` ma ochronę: wymagane review od właściciela z CODEOWNERS, wymagany `sowa check --ci` i **brak wyjątku dla adminów**,
 3. token człowieka nie jest dostępny w środowisku agenta.
 
 Jeśli choć jeden warunek nie jest spełniony, a zwłaszcza gdy ktoś pracuje sam z agentem na jednym koncie, zostaje podpis.
 
 ## Praca bez PR albo na jednym koncie
 
-Kto pracuje sam z agentem, może włączyć podpisywanie wpisów kluczem SSH, tak jak podpisuje się commity w gicie:
+Kto pracuje sam z agentem, może zatwierdzać specyfikację podpisanym commitem:
 
 ```toml
 [review]
@@ -137,7 +114,7 @@ approvers = ["reviewer@intum.com"]
 sign      = true
 ```
 
-`sowa review` podpisuje każdy wpis, a `sowa check --ci` sprawdza podpis na liście `approvers`.
+`sowa review --approve` robi pusty commit podpisany kluczem SSH, tak jak podpisuje się commity w gicie. `sowa check --ci` sprawdza, czy ostatni taki commit ma podpis osoby z `approvers` i czy od niego nie zmienił się żaden plik specyfikacji. To ten sam check co w kroku 4 [Zatwierdzenia na końcu](#zatwierdzenie-na-końcu), tylko zatwierdzeniem jest commit, a nie review w PR.
 
 Hasło do klucza nie wystarcza. Jeśli klucz jest odblokowany w `ssh-agent`, agent działający w tym samym terminalu też może nim podpisać. Klucz musi wymagać **potwierdzenia przy każdym użyciu**:
 
@@ -145,25 +122,46 @@ Hasło do klucza nie wystarcza. Jeśli klucz jest odblokowany w `ssh-agent`, age
 - `ssh-add -c`, które przy każdym podpisie pyta w okienku systemowym,
 - menedżer haseł, który pyta o zgodę przy każdym użyciu klucza (np. agent SSH w 1Password).
 
-Wtedy agent może uruchomić `sowa review`, ale podpisu bez człowieka nie złoży.
+Wtedy agent może uruchomić `sowa review --approve`, ale podpisu bez człowieka nie złoży.
+
+## Drugi agent jako recenzent
+
+Pomysł: jeden agent pisze kod, drugi, „pewniejszy”, go zatwierdza. Człowiek miałby wtedy mniej pracy. Sprawdzi się to jako filtr przed człowiekiem, ale nie zamiast niego:
+
+- **Błędy się nakładają.** Dwa modele, zwłaszcza z tej samej rodziny, mają podobne ślepe plamy. Czego nie zauważył autor, często nie zauważy recenzent. Modele oceniają też łagodniej teksty podobne do własnych.
+- **Autor może przekonać recenzenta.** Opis PR, komentarze w kodzie i `desc` to tekst, który czyta recenzent. Agent piszący, nawet bez złych zamiarów, uzasadni w nim osłabienie tak, że brzmi rozsądnie. W skrajnym przypadku to wstrzyknięcie poleceń.
+- **Recenzent nie wie, czego chciał człowiek.** Zna tylko treść zadania. Nie oceni, czy rabat do 1000% to pomyłka, czy nowa oferta.
+
+Dlatego agent-recenzent w Sowie nie decyduje o tym, co może zatwierdzić. Decydują kategorie z `sowa review`, czyli kompilator:
+
+| Kategoria w `sowa review` | Kto zatwierdza |
+|---|---|
+| uprawnienie, osłabienie, usunięty test, zmiana w `docs.lock` | tylko człowiek; agent-recenzent pisze uwagi w PR |
+| rozszerzenie, zwykłe | agent-recenzent albo człowiek |
+
+Warunki, żeby to działało:
+
+1. **Osobne konto** agenta-recenzenta (`[review] agent` w `sowa.toml`), z prawem zatwierdzania PR, ale bez prawa zapisu do repozytorium. Konto jest w zespole z CODEOWNERS, więc jego zatwierdzenie spełnia wymóg GitHuba, a `sowa check --ci` pilnuje reszty.
+2. **Inny model niż u autora**, najlepiej od innego dostawcy. Błędy nakładają się wtedy rzadziej.
+3. **Recenzent dostaje treść zadania, wynik `sowa review` i diff `src/`**, a nie opis PR, historię rozmowy ani uzasadnienia autora. Ocenia, czy specyfikacja pasuje do zadania, a nie czy autor ją dobrze obronił.
+4. **`sowa check --ci` sprawdza kategorie**, a nie ufa recenzentowi: zatwierdzenie konta z `[review] agent` przy zmianie z kategorii „tylko człowiek” się nie liczy.
+
+Zysk jest największy przy małych, częstych zmianach: nowa czysta funkcja, dodatkowy `example`, poprawka `desc`. Tam człowiek i tak klikałby „zatwierdź” bez czytania. Przy zmianach, które coś otwierają albo luzują, recenzent skraca pracę człowieka, bo wskazuje, na co patrzeć, ale jej nie zastępuje.
 
 ## Jak to robią inni
 
-- **[Aver](https://github.com/jasisz/aver)**: przegląd kontraktów zamiast kodu jako zalecany sposób pracy, bez plików zatwierdzeń i bez ochrony przed zmianą kontraktu albo testu przez agenta.
-- **[cargo-vet](https://github.com/mozilla/cargo-vet)** (Mozilla): audyty zależności zapisane w pliku z informacją, kto i co sprawdził. Najbliższy odpowiednik, ale dotyczy cudzych bibliotek, a nie własnego kodu.
-- **Pliki lock** (`Cargo.lock`, `package-lock.json`, `go.sum`): hash zapisany w repozytorium i sprawdzany przy buildzie. Od nich wzięliśmy format, ale ich nikt nie zatwierdza, tylko generują się same.
+- **[Aver](https://github.com/jasisz/aver)**: przegląd kontraktów zamiast kodu jako zalecany sposób pracy, bez ochrony przed zmianą kontraktu albo testu przez agenta i bez sprawdzania, czy kontrakt jest luźniejszy niż na `main`.
+- **Design by contract** (Eiffel, SPARK, TLA+): kontrakt jest częścią kodu i jest sprawdzany, ale żadne narzędzie nie pokazuje recenzentowi, że kontrakt w zmianie jest słabszy niż przed nią.
+- **[cargo-vet](https://github.com/mozilla/cargo-vet)** (Mozilla): audyty zależności zapisane w pliku z informacją, kto i co sprawdził. Dotyczy cudzych bibliotek, a nie własnego kodu.
+- **Narzędzia do zmian w API** ([buf breaking](https://buf.build/docs/breaking/), [cargo-semver-checks](https://github.com/obi1kenobi/cargo-semver-checks)): wykrywają zmiany w interfejsie, które psują wywołujących. `sowa review` robi coś podobnego dla warunków i uprawnień, z solverem zamiast listy reguł.
 - **[CODEOWNERS](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners)** (GitHub, GitLab): wymagana zgoda właściciela dla wybranych ścieżek. Sowa z tego korzysta, a nie zastępuje.
-- **Uprawnienia w [Deno](https://docs.deno.com/runtime/fundamentals/security/)** (`--allow-net`): ograniczenie efektów, ale w czasie uruchomienia i dla całego procesu, a nie funkcji.
 - **[Boruna](https://github.com/escapeboy/boruna)**: łańcuchy dowodowe z hashami dla wykonań, zob. [porownanie.md](porownanie.md).
-
-Nie znaleźliśmy języka, w którym kompilator sam wskazuje, **które zmiany w kodzie wymagają decyzji człowieka**, i wiąże to z review. Razem z wykrywaniem nieaktualnych opisów (`docs.lock`) może to być wyróżnik Sowy. To ważne, bo sama czytelna składnia jest słabą przewagą, zob. [ocena.md](ocena.md).
 
 ## Otwarte pytania
 
-- Czy połączyć `effects.lock` i `docs.lock` w jeden plik zatwierdzeń?
+- GitLab i inne platformy: jak `sowa check --ci` ma odczytać, na którym commicie człowiek zatwierdził zmianę?
+- Duży PR ze specyfikacją: czy `sowa review` ma grupować zmiany po module, gdy jest ich kilkadziesiąt?
+- Duża zmiana, przy której warto zapytać o kierunek wcześniej: wystarczy komentarz w szkicu PR z bieżącym `sowa review`, czy potrzebne jest coś więcej?
+- Co z konfliktami w `docs.lock`, gdy dwa PR zatwierdzają różne opisy? Może jeden wiersz na symbol i sortowanie, żeby merge był prosty.
+- Agent-recenzent: czy „usunięty test” zastąpiony mocniejszym `property` też musi iść do człowieka? Solver mógłby sprawdzić, że nowy test obejmuje stary.
 - Format podpisu (SSH jak w gicie?) i jak dodawać albo odwoływać osoby z `approvers`.
-- Co z konfliktami w plikach `.lock`, gdy dwa PR zatwierdzają różne rzeczy? Może jeden wiersz na symbol i sortowanie, żeby merge był prosty.
-- Czy `sowa review` ma pokazywać diff ciała funkcji od ostatniego zatwierdzenia, nawet przy `approve = true`?
-- Zmęczenie zatwierdzaniem: jeśli `approve` stoi na częstym efekcie (np. `Db.write`), ludzie zaczną zatwierdzać bez czytania. Może `sowa check` powinien ostrzegać, gdy zatwierdzeń jest za dużo, albo zalecać `approve` tylko dla rzadkich efektów, jak `Net`, a dla reszty mapę modułu z `[review.files]`?
-- Mapa modułu: czy funkcje, które tylko przekazują efekt dalej (po `←`), też powinny wchodzić do hasha? Teraz nie wchodzą, żeby mapa się nie zmieniała przy każdej nowej funkcji, ale wtedy nie widać, że efekt ma nowe wejście.
-- Mapa modułu: czy `[review.files]` powinno przyjmować wzorce ścieżek (`"src/db/*.sowa"`)?

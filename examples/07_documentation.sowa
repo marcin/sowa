@@ -1,4 +1,4 @@
-// Dokumentacja: desc, doc, why, example.
+// Dokumentacja: desc, doc, why, example, property.
 // desc to krótki tekst przy kodzie. doc i why to zawsze odnośniki do .md,
 // liczone od katalogu docs/ (zob. examples/sowa.toml).
 // desc, doc i why bez wcięcia na górze pliku opisują cały plik (nagłówek).
@@ -11,14 +11,16 @@ type Percent = Int(α >= 0 && α <= 100)
 type DiscountError = InvalidDiscount
 
 // Jedno zdanie przy kodzie + odnośniki do .md.
-fn apply_discount(total: Money, pct: Percent) -> Money
+// property: w miejscu parametrów (total, pct) kompilator podstawia dane generowane
+// z typów, np. dla Percent 0, 1, 99, 100 i losowe. example sprawdza jeden przypadek.
+fn apply_discount(total: Money, pct: Percent) -> Money(α <= total)
   desc Odejmuje rabat procentowy od kwoty.
   doc rabaty.md#naliczanie-rabatu
   why decyzje/rabat-od-brutto.md
 
   example apply_discount(100, 20) == 80
-  example apply_discount(100, 0) == 100
-  example apply_discount(100, 100) == 0
+  property apply_discount(total, 0) == total
+  property apply_discount(total, 100) == 0
 
   return total - total * pct / 100
 
@@ -57,6 +59,10 @@ fn read_discount(input: Int) -> Percent | DiscountError
 //   example apply_discount(100, 20) == 70
 //
 // błąd: przykład nie przechodzi: apply_discount(100, 20) zwraca 80, a oczekiwano 70
+//
+//   property apply_discount(total, 100) == total
+//
+// błąd: właściwość nie zachodzi dla total = 1: apply_discount(1, 100) zwraca 0
 //
 // A po zmianie sygnatury apply_discount, np. na (total: Money, pct: Percent, vip: Bool):
 //

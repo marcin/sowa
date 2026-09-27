@@ -1,5 +1,33 @@
 # Szczera ocena (27.09.2026)
 
+## Aktualizacja: uprawnienia i zatwierdzenie na końcu (27.09.2026)
+
+Po poprzedniej ocenie zmieniło się pięć rzeczy: uprawnienia jako parametry zamiast `effects`, jedno zatwierdzenie na PR, gdy całość działa, `sowa review` z solverem, warunki wyniku i `property` oraz mniej konfiguracji (bez trybów, `effects.lock`, `approve` i `[review.files]`).
+
+### Co się zmieniło na plus
+
+- **Mniej do nauczenia.** `sowa.toml` ma trzy krótkie sekcje (`[project]`, `[limits]`, `[resources]`), a zamiast dwóch plików `.lock` jest jeden, `docs.lock`. Punkt 2 z poprzedniej listy („proces może urosnąć w biurokrację”) jest w dużej części rozwiązany.
+- **Uprawnienia nie potrzebują nowej składni.** To zwykłe parametry. Znika problem funkcji wyższego rzędu (lambda przechwytuje uprawnienie) i znika osobna mapa „który plik co może”, bo widać to z sygnatur.
+- **Zmęczenie zatwierdzaniem jest mniejsze.** Nie ma zatwierdzania funkcji po kolei. Człowiek zatwierdza raz, działającą zmianę, a lista w `sowa review` ma stałą kolejność od najbardziej ryzykownych.
+- **Osłabienie specyfikacji widać zawsze.** Solver porównuje warunki z `main` i pokazuje kontrprzykład. To rozbraja główną pułapkę zatwierdzania gotowego kodu: specyfikację dopasowaną do kodu.
+- **Mocniejsze testy w specyfikacji.** `property` i warunki wyniku mówią więcej niż trzy przykłady, a agent ich nie ruszy bez zgody.
+
+### Co niepokoi
+
+1. **Solver jest teraz w środku obietnicy.** Wcześniej przewaga nie zależała od solvera. Teraz `sowa review` potrzebuje go do rozpoznania osłabień. Gdy solver nie rozstrzyga, zmiana idzie do osłabień, więc przy trudnych warunkach lista może być pełna fałszywych alarmów.
+2. **Strażnik zależy od API GitHuba.** `sowa check --ci` musi wiedzieć, na którym commicie człowiek zatwierdził PR. Na GitLabie i innych platformach trzeba to zrobić osobno.
+3. **Przekazywanie uprawnień przez wiele warstw.** Sygnatury się wydłużają. Agent może zacząć dawać `Db` wszędzie „na zapas”, co osłabia sens sygnatur. Potrzebne jest ostrzeżenie o nieużywanym uprawnieniu.
+4. **Warunki wyniku w runtime.** Warunek, którego solver nie udowodni, zamienia się w sprawdzenie w runtime. Niespełniony na produkcji to błąd programu, a decyzja, co wtedy robić, jest otwarta.
+5. **Drugi agent jako recenzent kusi, żeby wyłączyć człowieka.** Opcja jest ograniczona kategoriami z `sowa review`, ale zespół może chcieć ją poszerzyć. Wtedy wraca zatwierdzanie bez czytania, tylko przez model.
+
+### Następny krok
+
+1. parser dla `fn`, `type`, `desc`, `doc`, `why`, `example`, `property` i warunków wyniku,
+2. sprawdzanie uprawnień: nie da się ich utworzyć, płyną tylko przez parametry, `impl/` ma te same sygnatury co `src/`,
+3. `sowa review --base main` z kategoriami, na początek z solverem tylko dla arytmetyki liniowej,
+4. `sowa check --ci` z odczytem zatwierdzenia z API GitHuba,
+5. tłumaczenie `example`, `property` i bloków `sowa` do TypeScripta i uruchamianie ich, warunki wyniku na razie tylko w runtime.
+
 ## Aktualizacja: po dokumentacji i zatwierdzaniu (27.09.2026)
 
 Stan: specyfikacja, 7 przykładów i przykładowy projekt [invoices](../examples/invoices/), nadal bez parsera i kompilatora.

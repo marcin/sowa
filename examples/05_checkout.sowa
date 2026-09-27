@@ -4,11 +4,11 @@ type Price         = Money(α > 0)
 type Percent       = Int(α >= 0 && α <= 100)
 type CheckoutError = InvalidDiscount | EmptyCart | PaymentError
 
-// Z samej sygnatury wiesz, co funkcja może zrobić:
-// łączy się z siecią, zapisuje do bazy i może zwrócić CheckoutError.
-fn checkout(user: User, input: Int) -> Receipt | CheckoutError
-  effects Net, Db.write
-
+// Z samej sygnatury wiesz, co funkcja może zrobić: wysyła zapytania do banku
+// (Http z adresem z sowa.toml), zapisuje do bazy i może zwrócić CheckoutError.
+fn checkout(user: User, input: Int, bank: Http, db: Db) -> Receipt | CheckoutError
   pct = input as Percent or return InvalidDiscount
+  // Sprawdzenie w runtime: z warunku wyniku apply_discount wiadomo, że kwota nie
+  // rośnie, ale nie, że jest większa od zera (pusty koszyk albo rabat 100%).
   amount = apply_discount(cart_total(user.cart), pct) as Price or return EmptyCart
-  return try pay(user, amount)
+  return try pay(user, amount, bank, db)

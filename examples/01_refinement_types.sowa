@@ -15,8 +15,9 @@ type Valid = Order(o => o.total > 0 && len(o.items) > 0 && o.paid_at > o.created
 // Może odwoływać się do wcześniejszych parametrów.
 fn slice(list: List, start: Int(α >= 0), end: Int(α > start)) -> List
 
+// Warunek przy wyniku: α to wynik, a warunek może odwoływać się do parametrów.
 // apply_discount niczego nie sprawdza: dostaje Percent, więc wartość jest poprawna.
-fn apply_discount(total: Money, pct: Percent) -> Money
+fn apply_discount(total: Money, pct: Percent) -> Money(α <= total)
   if pct == 0
     return total
   return total - total * pct / 100

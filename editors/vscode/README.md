@@ -18,9 +18,9 @@ Potem przeładuj okno: Cmd+Shift+P, „Developer: Reload Window”. Po zmianie g
 |---|---|
 | słowa kluczowe | `fn`, `type`, `return`, `match`, `if`, `for`, `try`, `var` |
 | słowa-operatory | `as`, `or`, `is`, `not`, `with` |
-| dokumentacja | `desc` z tekstem (także blok z wcięciem), `doc` i `why` ze ścieżką jako odnośnikiem, `example` |
+| dokumentacja | `desc` z tekstem (także blok z wcięciem), `doc` i `why` ze ścieżką jako odnośnikiem, `example`, `property` |
 | odwołania w `desc` | `{Percent}` |
-| efekty | `effects Db.read, Net` |
+| uprawnienia | `Db`, `DbRead`, `Clock`, `Mailer`, `Http`, ... w parametrach |
 | warunek w typie | `α` |
 | typy, wywołania, pola | `Money`, `read_nip(...)`, `name: ...` |
 

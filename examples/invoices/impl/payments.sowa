@@ -1,23 +1,19 @@
-fn mark_paid(invoice: Invoice(α.status == Issued), amount: Price) -> Invoice | PaymentError
-  effects Db.write
-
+fn mark_paid(invoice: Invoice(α.status == Issued), amount: Price, db: Db)
+    -> Invoice(α.status == Paid) | PaymentError
   if amount != totals(invoice.lines, invoice.discount).gross
     return WrongAmount
   paid = invoice with status: Paid
-  save_invoice(paid)
+  save_invoice(paid, db)
   return paid
 
 // Wywołujący nie wie, jaki status ma faktura z bazy, więc musi to sprawdzić.
-fn pay_from_bank(invoice: Invoice, amount: Price) -> Invoice | PaymentError
-  effects Db.write
-
+fn pay_from_bank(invoice: Invoice, amount: Price, db: Db) -> Invoice(α.status == Paid) | PaymentError
   unpaid = invoice as Invoice(α.status == Issued) or return AlreadyPaid
-  return try mark_paid(unpaid, amount)
+  return try mark_paid(unpaid, amount, db)
 
 // Tak się nie skompiluje:
 //
-//   fn pay_from_bank(invoice: Invoice, amount: Price) -> Invoice | PaymentError
-//     effects Db.write
-//     return try mark_paid(invoice, amount)
+//   fn pay_from_bank(invoice: Invoice, amount: Price, db: Db) -> Invoice(α.status == Paid) | PaymentError
+//     return try mark_paid(invoice, amount, db)
 //
 // błąd: nie można udowodnić, że invoice.status == Issued
