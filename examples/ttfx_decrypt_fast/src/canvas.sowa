@@ -1,0 +1,35 @@
+desc Tekst z wejścia jako prostokąt komórek, tak jak układa go ttfx.
+why zalozenia.md#wejście
+
+fn read_canvas(input: String) -> List<List<String>>
+  desc
+    Wiersze od góry, po jednym znaku w komórce. Tab to spacje do najbliższej wielokrotności 4.
+    Spacje na końcu wierszy i puste wiersze na końcu znikają, a krótsze wiersze
+    dostają spacje do długości najdłuższego.
+  doc zalozenia.md#wejście
+
+  example read_canvas("ab\n c\n") == [["a", "b"], [" ", "c"]]
+  example read_canvas("a\tb") == [["a", " ", " ", " ", "b"]]
+  example read_canvas("\nxy") == [[" ", " "], ["x", "y"]]
+
+fn number_cells(canvas: List<List<String>>) -> List<List<Glyph>>
+  desc Komórki na starcie: puste. Znaki inne niż spacja dostają kolejne numery wierszami od góry.
+
+  example number_cells([["a", " ", "b"]]) == [[
+    Glyph(order: 0, frame: 0, ticks: 0, text: " "),
+    Glyph(order: -1, frame: 0, ticks: 0, text: " "),
+    Glyph(order: 1, frame: 0, ticks: 0, text: " "),
+  ]]
+
+fn typed_symbols(canvas: List<List<String>>) -> List<String>
+  desc Znaki inne niż spacja w kolejności pisania, czyli wierszami od góry i od lewej.
+
+  example typed_symbols([["a", " ", "b"], [" ", "c"]]) == ["a", "b", "c"]
+
+fn make_lines(cells: List<List<Glyph>>, scenes: List<List<Frame>>) -> List<Line>
+  desc Wiersze na starcie: tekst z pustych komórek, sceny znaków wiersza i busy tylko w wierszach ze znakami.
+
+  example make_lines([[Glyph(order: 0, frame: 0, ticks: 0, text: " ")]], [[Frame(text: "x", duration: 1)]])
+    == [Line(cells: [Glyph(order: 0, frame: 0, ticks: 0, text: " ")], scenes: [[Frame(text: "x", duration: 1)]],
+      text: " ", first: 0, busy: true)]
+  example len(make_lines([[Glyph(order: -1, frame: 0, ticks: 0, text: " ")]], [])) == 1

@@ -645,6 +645,11 @@ impl<'a> Ck<'a> {
                     self.expr(&a.value, sc, f, d);
                 }
                 self.constructor(name, args, e.line, f);
+                if self.record(name).is_some() && !self.env.fns.contains_key(name) {
+                    let given: Vec<(&str, &Expr)> =
+                        args.iter().filter_map(|a| a.name.as_deref().map(|n| (n, &a.value))).collect();
+                    self.field_types(name, &given, e.line, sc, f);
+                }
                 if let Some(info) = self.env.fns.get(name) {
                     self.cap_args(info.decl(), args, sc, e.line, f);
                 } else if let Some((n, _)) = builtin_fn(name) {
@@ -711,6 +716,10 @@ impl<'a> Ck<'a> {
                 self.expr(x, sc, f, d);
                 for (_, v) in fields {
                     self.expr(v, sc, f, d);
+                }
+                if let Some(r) = self.kind(x, sc).filter(|r| self.record(r).is_some()) {
+                    let given: Vec<(&str, &Expr)> = fields.iter().map(|(n, v)| (n.as_str(), v)).collect();
+                    self.field_types(&r, &given, e.line, sc, f);
                 }
             }
             ExprKind::Lambda { param, body } => {
@@ -794,6 +803,80 @@ impl<'a> Ck<'a> {
                 line,
                 format!("{} nie ma pól {}", name, extra.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")),
             );
+        }
+    }
+
+    fn record(&self, n: &str) -> Option<&'a Vec<Field>> {
+        match self.env.types.get(n) {
+            Some((TypeDecl { body: TypeBody::Record(fs), .. }, _)) => Some(fs),
+            _ => None,
+        }
+    }
+
+    // Podstawa typu: Int, Bool, String, List albo nazwa rekordu. Zawężenie i alias (`type Channel =
+    // Int(...)`) prowadzą do podstawy, a unia, wariant i reszta typów nie mają podstawy (None).
+    fn base(&self, t: &TypeExpr, depth: usize) -> Option<String> {
+        let TypeExpr::Name { name, .. } = t else { return None };
+        if PRIMS.contains(&name.as_str()) || name == "List" || self.record(name).is_some() {
+            return Some(name.clone());
+        }
+        match self.env.types.get(name) {
+            Some((TypeDecl { body: TypeBody::Rhs(ts), .. }, _)) if ts.len() == 1 && depth < 20 => self.base(&ts[0], depth + 1),
+            _ => None,
+        }
+    }
+
+    // Podstawa typu wyrażenia, gdy da się ją ustalić bez pełnej inferencji: stałe, porównania,
+    // parametry z typem, ich pola, wywołania funkcji i konstruktory rekordów. W innych razach None.
+    fn kind(&self, e: &Expr, sc: &mut Scopes<'a>) -> Option<String> {
+        let int = || Some("Int".to_string());
+        match &e.kind {
+            ExprKind::Int(_) => int(),
+            ExprKind::Str(_) => Some("String".into()),
+            ExprKind::Bool(_) | ExprKind::Not(_) => Some("Bool".into()),
+            ExprKind::List(_) => Some("List".into()),
+            ExprKind::Bin { op, l, r } => match *op {
+                "==" | "!=" | "<" | ">" | "<=" | ">=" | "&&" | "||" => Some("Bool".into()),
+                "+" | "-" | "*" | "/" | "%" => {
+                    let (a, b) = (self.kind(l, sc)?, self.kind(r, sc)?);
+                    (a == b && (a == "Int" || (a == "String" && *op == "+"))).then_some(a)
+                }
+                _ => None,
+            },
+            ExprKind::Neg(x) => self.kind(x, sc).filter(|k| k == "Int"),
+            ExprKind::Ident(n) => sc.find(n).and_then(|v| v.ty).and_then(|t| self.base(t, 0)),
+            ExprKind::Field { obj, name } => {
+                let r = self.kind(obj, sc)?;
+                let fd = self.record(&r)?.iter().find(|x| &x.name == name)?;
+                self.base(&fd.ty, 0)
+            }
+            ExprKind::Call { name, .. } => match self.env.fns.get(name) {
+                Some(i) => i.decl().ret.as_ref().and_then(|t| self.base(t, 0)),
+                None if self.record(name).is_some() => Some(name.clone()),
+                None => match name.as_str() {
+                    "len" => int(),
+                    "join" | "to_string" | "char" => Some("String".into()),
+                    _ => None,
+                },
+            },
+            ExprKind::With { e: x, .. } => self.kind(x, sc),
+            _ => None,
+        }
+    }
+
+    // Pola rekordu r w `r with pole: wartość` i w `R(pole: wartość)`: pole musi istnieć, a wartość
+    // o znanej podstawie typu musi pasować do pola. Int pasuje też do Money.
+    fn field_types(&mut self, r: &str, given: &[(&str, &Expr)], line: usize, sc: &mut Scopes<'a>, f: &SourceFile) {
+        let Some(fs) = self.record(r) else { return };
+        for (n, v) in given {
+            let Some(fd) = fs.iter().find(|x| x.name == *n) else {
+                self.err(&f.path, line, format!("{} nie ma pola {}", r, n));
+                continue;
+            };
+            let (Some(want), Some(have)) = (self.base(&fd.ty, 0), self.kind(v, sc)) else { continue };
+            if want != have && !(want == "Money" && have == "Int") {
+                self.err(&f.path, line, format!("pole {}.{} ma typ {}, a dostaje {}", r, n, fd.ty, have));
+            }
         }
     }
 

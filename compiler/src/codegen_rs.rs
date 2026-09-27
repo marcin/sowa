@@ -1042,10 +1042,18 @@ impl<'a> Gen<'a> {
                 };
                 let dt = cx.hints.get(&key).cloned().unwrap_or_else(|| et.clone());
                 cx.observe(key, &et);
-                writeln!(out, "{}    let mut {}: {} = {};", pad, v(var), dt.rs(), coerce(format!("{}.clone()", t), &et, &dt))
-                    .unwrap();
+                // Element, którego ciało pętli nie zmienia ani nie przenosi, jest czytany przez referencję.
+                let mut set = HashSet::new();
+                assigned(body, &mut set);
+                let by_ref = dt == et && !et.dynamic() && !et.copy() && !set.contains(var) && !moved_any(body, var, &self.moves);
+                if by_ref {
+                    writeln!(out, "{}    let {}: &{} = {};", pad, v(var), et.rs(), t).unwrap();
+                } else {
+                    writeln!(out, "{}    let mut {}: {} = {};", pad, v(var), dt.rs(), coerce(format!("{}.clone()", t), &et, &dt))
+                        .unwrap();
+                }
                 cx.scopes.push(HashMap::new());
-                cx.declare(var, dt, key);
+                cx.declare(var, dt, if by_ref { REF } else { key });
                 self.block(body, cx, out, ind + 1);
                 cx.scopes.pop();
                 writeln!(out, "{}}}", pad).unwrap();
@@ -1298,14 +1306,16 @@ impl<'a> Gen<'a> {
             ExprKind::Method { obj, name, targs, args } => self.method(obj, name, targs, args, e.line, cx),
             ExprKind::Field { obj, name } => {
                 if let ExprKind::Ident(n) = &obj.kind {
-                    if let Some((rt, _)) = cx.get(n) {
+                    if let Some((rt, k)) = cx.get(n) {
                         for f in cx.caps.iter_mut() {
                             f.insert(n.clone());
                         }
                         if let Rt::Rec(r) = &rt {
                             if let Some((frt, _)) = self.field_rt(r, name) {
                                 let p = format!("{}.f_{}", v(n), ident(name));
-                                return (if frt.copy() { p } else { format!("{}.clone()", p) }, frt);
+                                // Ostatni odczyt zmiennej wyjmuje pole: lista zostaje z jedną referencją.
+                                let take = frt.copy() || (k != REF && self.moves.contains(&key(e)));
+                                return (if take { p } else { format!("{}.clone()", p) }, frt);
                             }
                         }
                         if rt.dynamic() {

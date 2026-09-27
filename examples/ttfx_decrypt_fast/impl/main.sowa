@@ -1,0 +1,53 @@
+fn main(random: Random, terminal: Terminal)
+  raw = terminal.read()
+  if trim(raw) == ""
+    terminal.write("NO INPUT.\n")
+    terminal.exit(1)
+  input = join(split(raw, "\r\n"), "\n")
+  if contains(input, "\r") || contains(input, char(27))
+    terminal.write("ttfx_decrypt_fast: tekst z \\r albo z sekwencjami ANSI nie jest obsługiwany\n")
+    terminal.exit(2)
+  canvas = read_canvas(input)
+  text = typed_symbols(canvas)
+  pool = cipher_symbols()
+  // Kolejność losowań jak w ttfx: najpierw sceny pisania wszystkich znaków, potem szyfrowania.
+  typing = text.map(_symbol => typing_scene(pool, random))
+  decrypt = text.map(s => decrypt_scene(s, pool, random))
+  esc = char(27)
+  height = len(canvas)
+  var lines = make_lines(number_cells(canvas), typing)
+  // Przed pierwszą klatką ttfx robi miejsce na animację: wiersze spacji i zapamiętana pozycja kursora.
+  blank = join(lines.map(l => l.text + "\n"), "")
+  terminal.write(esc + "[?25l" + blank + esc + "7")
+  home = esc + "8" + esc + "7" + esc + "[" + to_string(height) + "A"
+
+  // Pisanie: w każdej klatce z szansą 76/101 pojawiają się dwa kolejne znaki.
+  total = len(text)
+  typing_time = duration(at(typing, 0))
+  var typed = 0
+  var remaining = 0
+  while typed < total || remaining > 0
+    if typed < total && random.int(0, 100) <= 75
+      typed = typed + 2
+      if typed > total
+        typed = total
+      remaining = typing_time
+    lines = lines.map(l => advance(l, typed))
+    terminal.write(home + join(lines.map(l => l.text), "\n"))
+    remaining = remaining - 1
+
+  // Szyfrowanie: wszystkie znaki naraz, aż ostatni skończy scenę.
+  var left = 0
+  for frames in decrypt
+    if duration(frames) > left
+      left = duration(frames)
+  lines = lines.map(l => l with
+    cells: l.cells.map(g => g with frame: 0, ticks: 0),
+    scenes: l.cells.filter(g => g.order >= 0).map(g => at(decrypt, g.order)),
+    busy: l.first >= 0,
+  )
+  while left > 0
+    lines = lines.map(l => advance(l, total))
+    terminal.write(home + join(lines.map(l => l.text), "\n"))
+    left = left - 1
+  terminal.write(esc + "[?25h\n")

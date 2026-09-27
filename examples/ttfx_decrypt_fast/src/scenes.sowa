@@ -1,0 +1,85 @@
+desc Sceny jednego znaku: pisanie, szybkie i wolne szyfrowanie, odkrycie.
+why zalozenia.md#sceny
+why zalozenia.md#losowanie
+
+fn cipher_symbols() -> List<String>
+  desc Znaki szyfru: ASCII 33–126, bloki 9608–9631, ramki 9472–9598 i łacina 174–451.
+
+  example len(cipher_symbols()) == 523
+
+fn paint(symbol: String, color: Rgb) -> String
+  desc Znak w kolorze 24-bitowym i reset koloru po nim.
+
+  example paint("a", Rgb(r: 0, g: 128, b: 0)) == char(27) + "[38;2;0;128;0ma" + char(27) + "[0m"
+
+fn floor_div(a: Int, b: Int(α > 0)) -> Int
+  desc Dzielenie z zaokrągleniem w dół, jak // w Pythonie. Zwykłe / w Sowie obcina do zera.
+
+  example floor_div(-95, 10) == -10
+  example floor_div(95, 10) == 9
+  example floor_div(-20, 10) == -2
+
+fn gradient(start: Rgb, end: Rgb, steps: Int(α > 0)) -> List<Rgb>
+  desc Przejście od start do end: steps kolorów co stały krok, a na końcu end.
+
+  example len(gradient(Rgb(r: 255, g: 255, b: 255), Rgb(r: 237, g: 160, b: 0), 10)) == 11
+  example at(gradient(Rgb(r: 255, g: 255, b: 255), Rgb(r: 237, g: 160, b: 0), 10), 9)
+    == Rgb(r: 237, g: 165, b: 21)
+
+fn typing_scene(pool: List<String>(len(α) > 0), random: Random) -> List<Frame>
+  desc Pisanie: cztery bloki ▉▓▒░ po 2 takty i jeden znak szyfru na 1 takt, w losowych zielonych kolorach.
+
+  example len(typing_scene(cipher_symbols(), random)) == 5
+  example duration(typing_scene(cipher_symbols(), random)) == 9
+
+fn decrypt_scene(symbol: String, pool: List<String>(len(α) > 0), random: Random) -> List<Frame>
+  desc
+    80 znaków szyfru po 2 takty, potem od 1 do 15 wolniejszych, a na koniec właściwy znak
+    w 11 kolorach od białego do pomarańczowego po 5 taktów. Sceny są już złączone przez chain.
+
+  example len(decrypt_scene("a", cipher_symbols(), random)) > 80 + 11
+
+fn chain(first: List<Frame>(len(α) > 0), next: List<Frame>(len(α) > 0)) -> List<Frame>
+  desc
+    Złącza dwie sceny tak jak silnik ttfx: w takcie, w którym kończy się pierwsza,
+    widać już pierwszą klatkę następnej. Łączny czas się nie zmienia.
+
+  example chain([Frame(text: "a", duration: 2)], [Frame(text: "b", duration: 3)])
+    == [Frame(text: "a", duration: 1), Frame(text: "b", duration: 1), Frame(text: "b", duration: 3)]
+  example chain([Frame(text: "a", duration: 1)], [Frame(text: "b", duration: 3)])
+    == [Frame(text: "b", duration: 1), Frame(text: "b", duration: 3)]
+
+fn duration(frames: List<Frame>) -> Int(α >= 0)
+  desc Liczba taktów sceny.
+
+  example duration([Frame(text: "a", duration: 2), Frame(text: "b", duration: 3)]) == 5
+
+fn step(glyph: Glyph, frame: Frame) -> Glyph
+  desc Jeden takt: komórka pokazuje bieżącą klatkę, a po jej czasie przechodzi do następnej.
+
+  example step(Glyph(order: 0, frame: 0, ticks: 0, text: " "), Frame(text: "x", duration: 2))
+    == Glyph(order: 0, frame: 0, ticks: 1, text: "x")
+  example step(Glyph(order: 0, frame: 0, ticks: 1, text: "x"), Frame(text: "x", duration: 2))
+    == Glyph(order: 0, frame: 1, ticks: 0, text: "x")
+
+fn advance(line: Line, typed: Int) -> Line
+  desc
+    Jeden takt wiersza: step dla komórek z order < typed, które mają jeszcze klatki sceny.
+    Tekst wiersza powstaje od nowa tylko wtedy, gdy któraś komórka zaczyna nową klatkę.
+    Wiersz bez takich komórek zostaje bez zmian.
+
+  example advance(
+    Line(cells: [Glyph(order: 0, frame: 0, ticks: 0, text: " ")], scenes: [[Frame(text: "x", duration: 2)]],
+      text: " ", first: 0, busy: true),
+    1,
+  ).text == "x"
+  example advance(
+    Line(cells: [Glyph(order: 0, frame: 0, ticks: 1, text: "x")], scenes: [[Frame(text: "x", duration: 2)]],
+      text: "x", first: 0, busy: true),
+    1,
+  ).busy == false
+  example advance(
+    Line(cells: [Glyph(order: 0, frame: 0, ticks: 0, text: " ")], scenes: [[Frame(text: "x", duration: 2)]],
+      text: " ", first: 0, busy: true),
+    0,
+  ).text == " "

@@ -400,7 +400,7 @@ Izolowane procesy z supervisorem. Stan `observable` jest odpytywalny na żywo.
   - typy z polami: `type Line` z polami w bloku z wcięciem?
   - generyki: `List<Line>`? Jak łączą się z warunkami (`List<Line>(len(α) > 0)`)?
   - argumenty nazwane: `Line(name: "A", quantity: 1)`, czy obowiązkowe?
-  - kopia z jednym zmienionym polem: `invoice with status: Paid`?
+  - kopia z jednym zmienionym polem: `invoice with status: Paid`? Rozstrzygnięte: wartość pola to całe wyrażenie do przecinka, więc `p with ok: p.n >= 0` znaczy `p with ok: (p.n >= 0)`.
   - moduły: czy wszystkie pliki w `src/` to jedna przestrzeń nazw (jak pakiet w Go), czy potrzebne są importy?
   - transakcje: operacja na `Db` z lambdą (`db.transaction(tx => ...)`) czy osobna konstrukcja?
   - manifest projektu: `sowa.toml`, jakie pola?
