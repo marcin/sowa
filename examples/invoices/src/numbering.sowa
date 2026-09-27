@@ -1,7 +1,7 @@
 desc Numeracja faktur: FV/2026/0001, FV/2026/0002, ...
 why decyzje/002-numeracja-bez-luk.md
 
-type InvoiceNumber = String(starts_with(α, "FV/"))
+type InvoiceNumber = String(matches(α, "^FV/[0-9]{4}/[0-9]{4,}$"))
   desc Numer faktury w formacie FV/rok/kolejny numer, np. FV/2026/0042.
 
 fn format_number(year: Int, seq: Int(α > 0)) -> InvoiceNumber

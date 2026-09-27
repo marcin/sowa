@@ -256,7 +256,8 @@ const $V = {};
 $T.HttpRequest = $rec("HttpRequest", [["method", $ref("Method")], ["path", $P.String], ["body", $P.String]]);
 $T.HttpResponse = $rec("HttpResponse", [["status", $P.Int], ["body", $P.String]]);
 $T.Method = $named("Method", $union(["Get", "Post", "Put", "Patch", "Delete"].map($var)));
-for (const n of ["Get", "Post", "Put", "Patch", "Delete", "HttpError", "DbError", "NoRow", "NotANumber"]) $VD[n] = null;
+$T.MailError = $named("MailError", $union(["MailRejected", "MailTimeout"].map($var)));
+for (const n of ["Get", "Post", "Put", "Patch", "Delete", "HttpError", "DbError", "NoRow", "NotANumber", "Sent", "MailRejected", "MailTimeout"]) $VD[n] = null;
 
 function $init_variants() {
   for (const n of Object.keys($VD)) if ($VD[n] === null) $V[n] = Object.freeze({ $v: n });
@@ -808,6 +809,19 @@ function $mkhttp(spec) {
   };
 }
 
+// Bun nie ma klienta SMTP, więc w tym backendzie działa tylko server = "memory".
+function $mkmailer(spec) {
+  if (!spec.server) throw new $TypeErr("Mailer: brak server w sowa.toml");
+  return {
+    $cap: "Mailer",
+    send(arg) {
+      if (spec.server === "memory") return $V.Sent;
+      console.error(`[sowa] smtp ${spec.server}: wysyłka działa tylko w backendzie Rust`);
+      return $V.MailTimeout;
+    },
+  };
+}
+
 const $STATUS = { Ok: 200, Redirect: 303, BadRequest: 400, NotFound: 404, BadGateway: 502 };
 const $METHODS = { GET: "Get", HEAD: "Get", POST: "Post", PUT: "Put", PATCH: "Patch", DELETE: "Delete" };
 
@@ -926,6 +940,7 @@ function $mkres(spec, root) {
     }
     case "Clock": return $mkclock(spec.now);
     case "Http": return $mkhttp(spec);
+    case "Mailer": return $mkmailer(spec);
     case "Server": return $mkserver(spec);
     case "Random": return $mkrandom(spec.seed ?? (spec.seed_env ? process.env[spec.seed_env] : undefined));
     case "Terminal": return $mkterminal();

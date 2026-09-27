@@ -26,7 +26,8 @@ fn save_with_next_number(buyer: Buyer, lines: List<Line>(len(α) > 0), discount:
     DbError   => return NumberingFailed
 
 fn last_invoice_seq(year: Int, db: DbRead) -> Int(α >= 0)
-  // ciało pominięte w przykładzie
+  // Faktur się nie usuwa, więc liczba faktur z danego roku to ostatni numer.
+  return len(db.all<Invoice>("invoices").filter(i => i.issued_on.year == year))
 
 fn save_invoice(invoice: Invoice, db: Db)
-  // ciało pominięte w przykładzie
+  db.save("invoices", key: invoice.number, value: invoice)

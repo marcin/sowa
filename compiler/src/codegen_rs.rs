@@ -1452,15 +1452,24 @@ impl<'a> Gen<'a> {
                 (format!("{{ {}V::Fn(Rc::new({})) }}", pre, clo), Rt::Dyn)
             }
             ExprKind::Try(x) => {
-                let ExprKind::Call { name, .. } = &x.kind else { return ("V::Unit".into(), Rt::Dyn) };
-                let Some(info) = self.env.fns.get(name) else { return ("V::Unit".into(), Rt::Dyn) };
-                let d = info.decl();
-                let alts: Vec<TypeExpr> = d.ret.as_ref().map(|r| r.alts().into_iter().cloned().collect()).unwrap_or_default();
-                if alts.len() < 2 {
-                    return self.ex(x, cx);
-                }
-                let rest = TypeExpr::Union(alts[1..].to_vec());
-                let t = self.ty(&rest, cx);
+                let t = match &x.kind {
+                    // Metoda uprawnienia z błędami (mail.send); typ odbiorcy sprawdza check.
+                    ExprKind::Method { name, .. } => match CAP_TRY.iter().find(|(_, m, _)| m == name) {
+                        Some((_, _, err)) => format!("tref({})", q(err)),
+                        None => return ("V::Unit".into(), Rt::Dyn),
+                    },
+                    ExprKind::Call { name, .. } => {
+                        let Some(info) = self.env.fns.get(name) else { return ("V::Unit".into(), Rt::Dyn) };
+                        let d = info.decl();
+                        let alts: Vec<TypeExpr> = d.ret.as_ref().map(|r| r.alts().into_iter().cloned().collect()).unwrap_or_default();
+                        if alts.len() < 2 {
+                            return self.ex(x, cx);
+                        }
+                        let rest = TypeExpr::Union(alts[1..].to_vec());
+                        self.ty(&rest, cx)
+                    }
+                    _ => return ("V::Unit".into(), Rt::Dyn),
+                };
                 let c = self.exd(x, cx);
                 let tv = cx.tmp();
                 let r = self.ret_code(cx, tv.clone(), &Rt::Dyn, true);
@@ -2077,7 +2086,7 @@ fn spec_rs(project: &Project, section: &str, fakes: &[String]) -> String {
             _ => get("seed"),
         };
         items.push(format!(
-            "({}, Spec {{ ty: {}, url: {}, now: {}, fake: {}, seed: {}, seed_env: {}, listen: {}, token_env: {} }})",
+            "({}, Spec {{ ty: {}, url: {}, now: {}, fake: {}, seed: {}, seed_env: {}, listen: {}, token_env: {}, server: {}, from: {}, login_env: {} }})",
             q(&e.key),
             q(&get("type").unwrap_or_default()),
             opt(get("url")),
@@ -2086,7 +2095,10 @@ fn spec_rs(project: &Project, section: &str, fakes: &[String]) -> String {
             opt(seed),
             opt(get("seed_env")),
             opt(get("listen")),
-            opt(get("token_env"))
+            opt(get("token_env")),
+            opt(get("server")),
+            opt(get("from")),
+            opt(get("login_env"))
         ));
     }
     format!("fn spec() -> Vec<(&'static str, Spec)> {{\n    vec![{}]\n}}\n", items.join(", "))

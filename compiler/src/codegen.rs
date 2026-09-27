@@ -653,8 +653,15 @@ impl<'a> Gen<'a> {
                     self.err(cx, e.line, "w warunku typu nie ma `try`");
                     return "undefined".into();
                 }
+                // Metoda uprawnienia z błędami (mail.send); typ odbiorcy sprawdza check.
+                if let ExprKind::Method { name, .. } = &x.kind {
+                    if let Some((_, _, err)) = CAP_TRY.iter().find(|(_, m, _)| m == name) {
+                        let c = self.expr(x, cx);
+                        return format!("$try({}, $ref({:?}))", c, err);
+                    }
+                }
                 let ExprKind::Call { name, .. } = &x.kind else {
-                    self.err(cx, e.line, "`try` stoi tylko przed wywołaniem funkcji");
+                    self.err(cx, e.line, "`try` stoi tylko przed wywołaniem funkcji albo metodą uprawnienia z błędami");
                     return "undefined".into();
                 };
                 let Some(info) = self.env.fns.get(name) else {

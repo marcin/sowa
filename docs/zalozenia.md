@@ -173,7 +173,7 @@ fn issue_invoice(form: InvoiceForm, db: Db, clock: Clock) -> Invoice | IssueErro
 fn send_invoice(invoice: Invoice, mail: Mailer) -> Sent | SendError
 ```
 
-Operacje wywołuje się na uprawnieniu: `clock.today()`, `mail.send(to, subject, pdf)`, `db.transaction(...)`. Nie ma globalnych funkcji w rodzaju `current_date()` czy `http_post(url, ...)`, więc bez uprawnienia nie ma czym wysłać e-maila ani odczytać daty.
+Operacje wywołuje się na uprawnieniu: `clock.today()`, `mail.send(to, subject, body)`, `db.transaction(...)`. Nie ma globalnych funkcji w rodzaju `current_date()` czy `http_post(url, ...)`, więc bez uprawnienia nie ma czym wysłać e-maila ani odczytać daty.
 
 Reguły:
 

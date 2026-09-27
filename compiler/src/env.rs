@@ -4,7 +4,7 @@ use crate::ast::*;
 use std::collections::BTreeMap;
 
 pub const PRIMS: [&str; 7] = ["Int", "Money", "String", "Bool", "Html", "Date", "DateTime"];
-pub const CAPS: [&str; 7] = ["Db", "DbRead", "Clock", "Http", "Server", "Random", "Terminal"];
+pub const CAPS: [&str; 8] = ["Db", "DbRead", "Clock", "Http", "Mailer", "Server", "Random", "Terminal"];
 
 // Wbudowane rekordy: nazwa → pola (nazwa, typ).
 pub const BUILTIN_RECORDS: [(&str, &[(&str, &str)]); 2] = [
@@ -13,10 +13,11 @@ pub const BUILTIN_RECORDS: [(&str, &[(&str, &str)]); 2] = [
 ];
 
 // Wbudowane unie wariantów bez danych: nazwa typu → warianty.
-pub const BUILTIN_UNIONS: [(&str, &[&str]); 1] = [("Method", &["Get", "Post", "Put", "Patch", "Delete"])];
+pub const BUILTIN_UNIONS: [(&str, &[&str]); 2] =
+    [("Method", &["Get", "Post", "Put", "Patch", "Delete"]), ("MailError", &["MailRejected", "MailTimeout"])];
 
 // Wbudowane warianty bez typu-unii (zwracają je operacje wbudowane).
-pub const BUILTIN_VARIANTS: [&str; 4] = ["HttpError", "DbError", "NoRow", "NotANumber"];
+pub const BUILTIN_VARIANTS: [&str; 5] = ["HttpError", "DbError", "NoRow", "NotANumber", "Sent"];
 
 // Wbudowane funkcje: nazwa, liczba argumentów, czy asynchroniczna (bierze lambdę).
 pub const BUILTIN_FNS: [(&str, usize, bool); 27] = [
@@ -50,15 +51,19 @@ pub const BUILTIN_FNS: [(&str, usize, bool); 27] = [
 ];
 
 // Metody: typ odbiorcy → dozwolone metody.
-pub const CAP_METHODS: [(&str, &[&str]); 7] = [
+pub const CAP_METHODS: [(&str, &[&str]); 8] = [
     ("Db", &["get", "all", "save", "transaction"]),
     ("DbRead", &["get", "all"]),
     ("Clock", &["now", "today"]),
     ("Http", &["post", "get"]),
+    ("Mailer", &["send"]),
     ("Server", &["serve"]),
     ("Random", &["int", "choice"]),
     ("Terminal", &["read", "write", "exit"]),
 ];
+// Metody uprawnień, przed którymi może stać `try`: (typ, metoda, typ błędów).
+pub const CAP_TRY: [(&str, &str, &str); 1] = [("Mailer", "send", "MailError")];
+
 pub const LIST_METHODS: [&str; 3] = ["map", "filter", "reverse"];
 
 pub fn builtin_fn(name: &str) -> Option<(usize, bool)> {
@@ -268,7 +273,22 @@ impl<'a> Env<'a> {
     }
 
     // `type Quantity = Int(α > 0)` to zawężenie, a nie unia: jego liść to sama nazwa.
+    // `type SendError = MailError` bez warunku to inna nazwa tej samej unii, więc się rozwija.
     fn is_single_refine(&self, terms: &[TypeExpr]) -> bool {
-        terms.len() == 1 && matches!(&terms[0], TypeExpr::Name { name, .. } if self.is_type(name))
+        terms.len() == 1
+            && matches!(&terms[0], TypeExpr::Name { name, cond, .. } if self.is_type(name) && (cond.is_some() || !self.is_union(name, 0)))
+    }
+
+    fn is_union(&self, n: &str, depth: usize) -> bool {
+        if BUILTIN_UNIONS.iter().any(|(u, _)| *u == n) {
+            return true;
+        }
+        match self.types.get(n) {
+            Some((TypeDecl { body: TypeBody::Rhs(ts), .. }, _)) => {
+                ts.len() > 1
+                    || (depth < 20 && matches!(&ts[0], TypeExpr::Name { name, cond: None, .. } if self.is_union(name, depth + 1)))
+            }
+            _ => false,
+        }
     }
 }

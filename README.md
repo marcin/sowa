@@ -20,8 +20,8 @@ W `impl/` jest kod, który pisze agent i którego człowiek nie musi czytać:
 ```
 // impl/sending.sowa
 fn send_invoice(invoice: Invoice, mail: Mailer) -> Sent | SendError
-  pdf = render_pdf(invoice)
-  return try mail.send(invoice.buyer.email, subject(invoice), pdf)
+  body = mail_body(invoice)
+  return try mail.send(invoice.buyer.email, subject(invoice), body)
 ```
 
 `mail: Mailer` to uprawnienie: bez tego parametru funkcja nie ma czym wysłać e-maila. Uprawnienia nie da się utworzyć w kodzie, więc jedyny `Mailer` w programie to serwer zatwierdzony w `sowa.toml`:

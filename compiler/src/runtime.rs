@@ -572,7 +572,8 @@ pub fn init_builtins() {
     defrec("HttpRequest", vec![("method", tref("Method")), ("path", tp(P::String)), ("body", tp(P::String))]);
     defrec("HttpResponse", vec![("status", tp(P::Int)), ("body", tp(P::String))]);
     defnamed("Method", tunion(["Get", "Post", "Put", "Patch", "Delete"].iter().map(|n| tvar(n)).collect()));
-    for n in ["Get", "Post", "Put", "Patch", "Delete", "HttpError", "DbError", "NoRow", "NotANumber"] {
+    defnamed("MailError", tunion(vec![tvar("MailRejected"), tvar("MailTimeout")]));
+    for n in ["Get", "Post", "Put", "Patch", "Delete", "HttpError", "DbError", "NoRow", "NotANumber", "Sent", "MailRejected", "MailTimeout"] {
         defvar(n, None);
     }
 }
@@ -1924,6 +1925,8 @@ pub enum Cap {
     Clock(Option<V>),
     // Atrapa z [resources.test] albo prawdziwy serwer: adres i nazwa zmiennej z tokenem.
     Http { fake: Option<fn(V) -> R>, url: &'static str, token_env: Option<&'static str> },
+    // Serwer SMTP z [resources] ("memory": wiadomości nigdzie nie wychodzą), nadawca i zmienna z loginem.
+    Mailer { server: &'static str, from: &'static str, login_env: Option<&'static str> },
     Server(&'static str),
     Random(RefCell<Xoshiro>),
     Terminal,
@@ -1934,6 +1937,7 @@ impl Cap {
             Cap::Db(..) => "Db",
             Cap::Clock(_) => "Clock",
             Cap::Http { .. } => "Http",
+            Cap::Mailer { .. } => "Mailer",
             Cap::Server(_) => "Server",
             Cap::Random(_) => "Random",
             Cap::Terminal => "Terminal",
@@ -2147,6 +2151,9 @@ pub struct Spec {
     pub seed_env: Option<&'static str>,
     pub listen: Option<&'static str>,
     pub token_env: Option<&'static str>,
+    pub server: Option<&'static str>,
+    pub from: Option<&'static str>,
+    pub login_env: Option<&'static str>,
 }
 
 fn mkres(sp: &Spec) -> R {
@@ -2163,6 +2170,10 @@ fn mkres(sp: &Spec) -> R {
         "Http" => match (sp.fake, sp.url) {
             (None, None) => terr("Http: brak url ani fake w sowa.toml"),
             (fake, url) => Ok(V::Cap(Rc::new(Cap::Http { fake, url: url.unwrap_or(""), token_env: sp.token_env }))),
+        },
+        "Mailer" => match sp.server {
+            None => terr("Mailer: brak server w sowa.toml"),
+            Some(server) => Ok(V::Cap(Rc::new(Cap::Mailer { server, from: sp.from.unwrap_or("sowa@localhost"), login_env: sp.login_env }))),
         },
         "Server" => Ok(V::Cap(Rc::new(Cap::Server(sp.listen.unwrap_or("127.0.0.1:8080"))))),
         "Random" => {
@@ -2512,6 +2523,117 @@ fn http_send(url: &str, token_env: Option<&str>, method: &str, path: &str, body:
     mk("HttpResponse", vec![("status", V::Int(code as i64)), ("body", s(&String::from_utf8_lossy(&out)))])
 }
 
+// ---------- Mailer: SMTP przez libcurl ----------
+//
+// Ten sam libcurl co w Http. Port 465 to SMTPS, inne porty wymagają STARTTLS, poza serwerem na
+// localhost. Treść idzie jako text/html w base64, więc kropki i długie linie nie wymagają obsługi.
+// Brak połączenia albo przekroczony czas to MailTimeout, każda odmowa serwera to MailRejected.
+
+const CURLOPT_READDATA: c_int = 10009;
+const CURLOPT_USERPWD: c_int = 10005;
+const CURLOPT_MAIL_FROM: c_int = 10186;
+const CURLOPT_MAIL_RCPT: c_int = 10187;
+const CURLOPT_READFUNCTION: c_int = 20012;
+const CURLOPT_UPLOAD: c_int = 46;
+const CURLOPT_USE_SSL: c_int = 119;
+const CURLOPT_CONNECTTIMEOUT_MS: c_int = 156;
+const CURLUSESSL_TRY: c_long = 1;
+const CURLUSESSL_ALL: c_long = 3;
+
+struct MailBody {
+    data: Vec<u8>,
+    pos: usize,
+}
+
+extern "C" fn curl_read(buf: *mut u8, size: usize, n: usize, src: *mut u8) -> usize {
+    let src = unsafe { &mut *(src as *mut MailBody) };
+    let k = (size * n).min(src.data.len() - src.pos);
+    unsafe { std::ptr::copy_nonoverlapping(src.data[src.pos..].as_ptr(), buf, k) };
+    src.pos += k;
+    k
+}
+
+fn base64(b: &[u8]) -> String {
+    const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(b.len().div_ceil(3) * 4);
+    for c in b.chunks(3) {
+        let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+        for i in 0..4 {
+            out.push(if i <= c.len() { A[(n >> (18 - 6 * i) & 63) as usize] as char } else { '=' });
+        }
+    }
+    out
+}
+
+fn mail_send(server: &str, from: &str, login_env: Option<&str>, to: &str, subject: &str, body: &str) -> R {
+    let fail = |v: &str, why: &str| {
+        eprintln!("[sowa] smtp {}: {}", server, why);
+        Ok(vsing(v))
+    };
+    if [to, from].iter().any(|a| a.contains(['\r', '\n', '<', '>'])) || subject.contains(['\r', '\n']) {
+        return fail("MailRejected", "znak nowej linii albo <> w adresie lub temacie");
+    }
+    let lib = match curl() {
+        Ok(l) => l,
+        Err(e) => return fail("MailTimeout", e),
+    };
+    let host = server.rsplit_once(':').map(|(h, _)| h).unwrap_or(server);
+    let local = matches!(host, "localhost" | "127.0.0.1" | "[::1]");
+    let url = if server.ends_with(":465") { format!("smtps://{}", server) } else { format!("smtp://{}", server) };
+    let mut text = base64(body.as_bytes());
+    let mut lines = String::new();
+    while text.len() > 76 {
+        let rest = text.split_off(76);
+        lines.push_str(&text);
+        lines.push_str("\r\n");
+        text = rest;
+    }
+    lines.push_str(&text);
+    let msg = format!(
+        "From: <{}>\r\nTo: <{}>\r\nSubject: =?UTF-8?B?{}?=\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n{}\r\n",
+        from,
+        to,
+        base64(subject.as_bytes()),
+        lines
+    );
+    let login = login_env.and_then(|k| std::env::var(k).ok()).filter(|t| !t.is_empty());
+    let (Ok(c_url), Ok(c_from), Ok(c_to)) = (CString::new(url), CString::new(format!("<{}>", from)), CString::new(format!("<{}>", to))) else {
+        return fail("MailRejected", "bajt zerowy w adresie");
+    };
+    let Ok(c_login) = CString::new(login.clone().unwrap_or_default()) else { return fail("MailRejected", "bajt zerowy w loginie") };
+    let mut src = MailBody { data: msg.into_bytes(), pos: 0 };
+    let rc = unsafe {
+        let h = (lib.init)();
+        if h.is_null() {
+            return fail("MailTimeout", "curl_easy_init nie zadziałał");
+        }
+        let rcpt = (lib.slist_append)(std::ptr::null_mut(), c_to.as_ptr());
+        (lib.setopt)(h, CURLOPT_URL, c_url.as_ptr());
+        (lib.setopt)(h, CURLOPT_NOSIGNAL, 1 as c_long);
+        (lib.setopt)(h, CURLOPT_CONNECTTIMEOUT_MS, 5000 as c_long);
+        (lib.setopt)(h, CURLOPT_TIMEOUT_MS, 20000 as c_long);
+        (lib.setopt)(h, CURLOPT_USE_SSL, if local { CURLUSESSL_TRY } else { CURLUSESSL_ALL });
+        (lib.setopt)(h, CURLOPT_MAIL_FROM, c_from.as_ptr());
+        (lib.setopt)(h, CURLOPT_MAIL_RCPT, rcpt);
+        if login.is_some() {
+            (lib.setopt)(h, CURLOPT_USERPWD, c_login.as_ptr());
+        }
+        (lib.setopt)(h, CURLOPT_UPLOAD, 1 as c_long);
+        (lib.setopt)(h, CURLOPT_READFUNCTION, curl_read as extern "C" fn(*mut u8, usize, usize, *mut u8) -> usize);
+        (lib.setopt)(h, CURLOPT_READDATA, &mut src as *mut MailBody as *mut u8);
+        let rc = (lib.perform)(h);
+        (lib.cleanup)(h);
+        (lib.slist_free_all)(rcpt);
+        rc
+    };
+    match rc {
+        0 => Ok(vsing("Sent")),
+        // CURLE_COULDNT_RESOLVE_HOST, CURLE_COULDNT_CONNECT, CURLE_OPERATION_TIMEDOUT
+        6 | 7 | 28 => fail("MailTimeout", &unsafe { CStr::from_ptr((lib.strerror)(rc)) }.to_string_lossy()),
+        _ => fail("MailRejected", &unsafe { CStr::from_ptr((lib.strerror)(rc)) }.to_string_lossy()),
+    }
+}
+
 // Metody list i uprawnień.
 pub fn call(o: V, name: &str, pos: Vec<V>, named: Vec<(&'static str, V)>, targs: Vec<T>, line: usize) -> R {
     let arg = |i: usize, key: &str| -> V {
@@ -2640,6 +2762,18 @@ pub fn call(o: V, name: &str, pos: Vec<V>, named: Vec<(&'static str, V)>, targs:
                     Some(fake) => fake(mk("HttpRequest", vec![("method", vsing(method)), ("path", path), ("body", body)])?),
                     None => http_send(url, *token_env, method, &st(&path, "http.path")?, &st(&body, "http.body")?),
                 }
+            }
+            (Cap::Mailer { server, from, login_env }, "send") => {
+                let (to, subject, body) = (arg(0, "to"), arg(1, "subject"), arg(2, "body"));
+                let (to, subject) = (st(&to, "mail.to")?, st(&subject, "mail.subject")?);
+                let body = match &body {
+                    V::Html(h) => h.to_string(),
+                    v => st(v, "mail.body")?.to_string(),
+                };
+                if *server == "memory" {
+                    return Ok(vsing("Sent"));
+                }
+                mail_send(server, from, *login_env, &to, &subject, &body)
             }
             (Cap::Server(listen), "serve") => {
                 out_flush();
