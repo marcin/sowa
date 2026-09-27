@@ -149,6 +149,7 @@ Wtedy agent może uruchomić `sowa review`, ale podpisu bez człowieka nie zło�
 
 ## Jak to robią inni
 
+- **[Aver](https://github.com/jasisz/aver)**: przegląd kontraktów zamiast kodu jako zalecany sposób pracy, bez plików zatwierdzeń i bez ochrony przed zmianą kontraktu albo testu przez agenta.
 - **[cargo-vet](https://github.com/mozilla/cargo-vet)** (Mozilla): audyty zależności zapisane w pliku z informacją, kto i co sprawdził. Najbliższy odpowiednik, ale dotyczy cudzych bibliotek, a nie własnego kodu.
 - **Pliki lock** (`Cargo.lock`, `package-lock.json`, `go.sum`): hash zapisany w repozytorium i sprawdzany przy buildzie. Od nich wzięliśmy format, ale ich nikt nie zatwierdza, tylko generują się same.
 - **[CODEOWNERS](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners)** (GitHub, GitLab): wymagana zgoda właściciela dla wybranych ścieżek. Sowa z tego korzysta, a nie zastępuje.

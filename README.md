@@ -52,16 +52,17 @@ Kod (impl/): 3 pliki, 120 linii, nie wymaga przeglądu.
   mutacje wykryte przez testy: 41 z 44
 ```
 
-## Czego nie znaleźliśmy w innych językach
+## Czego nie ma w innych językach
 
-Szukaliśmy wśród popularnych języków i kilkudziesięciu projektów języków dla AI ([porównanie](docs/porownanie.md)). Pojedyncze elementy istnieją, ale nie takie połączenie i nie w tym celu.
+Porównanie objęło popularne języki i kilkadziesiąt projektów języków dla AI ([porównanie](docs/porownanie.md)). Najbliżej jest [Aver](https://github.com/jasisz/aver), z tą samą tezą: „AI pisze, człowiek przegląda kontrakty”. Tam przegląd jest jednak zaleceniem, a agent może po cichu zmienić kontrakt albo test. W Sowie zatwierdzanie jest egzekwowane:
 
-1. **Specyfikacja zatwierdzana, kod odizolowany.** `src/` i `impl/` to nie tylko podział plików, jak `.mli` w OCamlu czy `.ads` w Adzie. To granica odpowiedzialności: człowiek zatwierdza `src/` przez CODEOWNERS, `impl/` jest w PR zwinięty, a kompilator nie pozwala mu wyjść poza specyfikację. Kod możesz też czytać, w wybranych modułach albo w całym projekcie. [Tryby](docs/tryby.md)
-2. **Kompilator mówi, co wymaga decyzji człowieka.** Nowa funkcja z siecią, luźniejszy warunek w typie, usunięty test: `sowa review` wyciąga je z całej zmiany i ustawia na górze. Zwykły diff pokazuje to tak samo jak zmianę nazwy zmiennej. [Zatwierdzanie](docs/zatwierdzanie.md)
-3. **Efekty przypięte do konkretnego adresu.** `effects Net(mail)` nie znaczy „sieć”, tylko „ten jeden serwer z `sowa.toml`”. Sprawdza to kompilator dla każdej funkcji, a runtime dodatkowo dla procesu. Deno ogranicza sieć tylko dla całego procesu, a języki z efektami (Koka, Unison) nie mówią dokąd.
-4. **Polityka efektów projektu w jednym pliku.** `sowa.toml` mówi, jakie efekty wolno mieć w projekcie i w których plikach: sieć tylko w wysyłce, zegar tylko przy wystawianiu faktury. To zdanie z dokumentacji architektury, tyle że sprawdzane przy każdym buildzie.
-5. **Testy, których agent nie osłabi.** Przykłady w `src/` są częścią specyfikacji. Agent nie poprawi testu, żeby przeszedł, bo to zmiana wymagająca zgody. Dane testowe generują się z typów, a wynik testów mutacyjnych człowiek widzi zamiast kodu.
-6. **Dokumentacja, która nie kłamie.** Odnośniki z kodu do `.md` i `{Symbol}` w `.md` sprawdza kompilator. Przykłady w `.md` uruchamiają się jako testy. Gdy zmieni się sygnatura, `docs.lock` wskaże akapity, które trzeba przejrzeć.
+1. **Specyfikacja to granica, a nie widok.** Człowiek zatwierdza `src/` przez CODEOWNERS, `impl/` jest w PR zwinięty, a kompilator nie pozwala kodowi wyjść poza specyfikację. W OCamlu (`.mli`) i Adzie (`.ads`) podział plików służy kompilacji, a w Sowie odpowiedzialności. Kod możesz też czytać, w wybranych modułach albo w całym projekcie. [Tryby](docs/tryby.md)
+2. **Lista decyzji zamiast diffu.** Nowa funkcja z siecią, luźniejszy warunek w typie, usunięty test: `sowa review` wyciąga je z całej zmiany i ustawia na górze. Zwykły diff pokazuje to tak samo jak zmianę nazwy zmiennej. [Zatwierdzanie](docs/zatwierdzanie.md)
+3. **Adres w sygnaturze funkcji.** `effects Net(mail)` nie znaczy „sieć”, tylko „ten jeden serwer z `sowa.toml`”. Aver i Deno mają listę dozwolonych hostów, ale dla całego programu i dopiero w runtime. W Sowie sprawdza to kompilator dla każdej funkcji, a runtime jest drugą linią obrony.
+4. **Architektura sprawdzana przy każdym buildzie.** `sowa.toml` mówi, w których modułach wolno mieć jakie efekty: sieć tylko w wysyłce, zegar tylko przy wystawianiu faktury. Lintery importów robią coś podobnego, ale nie widzą wywołań pośrednich, a efekty je widzą. `sowa effects` pokazuje, w których funkcjach modułu powstaje jaki efekt, bez czytania kodu.
+5. **Testy, których agent nie osłabi.** Przykłady w `src/` są częścią specyfikacji, więc agent nie poprawi testu, żeby przeszedł. Dane testowe generują się z typów, a wynik testów mutacyjnych człowiek widzi zamiast kodu.
+6. **Opisy, które nie zestarzeją się po cichu.** Doctesty (Rust, Elixir) sprawdzają kod w dokumentacji, ale nie tekst. Gdy zmieni się sygnatura, `docs.lock` wskaże akapity, które trzeba przejrzeć. Odnośniki z kodu do `.md` i `{Symbol}` w `.md` sprawdza kompilator.
+7. **Proces, którego nie da się obejść po cichu.** `sowa check` sprawdza też sam proces: czy CODEOWNERS obejmuje specyfikację i pliki `.lock`. Bez tego wszystkie powyższe zabezpieczenia byłyby tylko umową.
 
 ## A jeśli chcesz czytać kod
 
