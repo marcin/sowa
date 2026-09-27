@@ -151,7 +151,7 @@ pct = input as Percent or
   return InvalidDiscount
 ```
 
-`or` jest wolne, bo w warunkach logicznych używamy `&&` i `||`.
+`or` jest wolne, bo w warunkach logicznych używamy `&&` i `||`. `or` nie zastępuje `||`: stoi tylko po `as`. Wartość domyślna po `or` to całe wyrażenie, więc `ok = input as Flag or n > 0` znaczy `input as Flag or (n > 0)`.
 
 Zamiast `as ... or` można też użyć zwykłego `if` z `is`:
 

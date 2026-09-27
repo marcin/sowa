@@ -109,7 +109,7 @@ i           = nie { "&&" nie }
 nie         = "not" nie | porówn
 porówn      = zamiana [ ( "==" | "!=" | "<" | "<=" | ">" | ">=" ) zamiana | "is" [ "not" ] typ_wyr ]
 zamiana     = suma { "as" typ_wyr [ "or" alt ] | "with" pole { "," pole } }
-alt         = "return" [ wyr ] | blok | suma
+alt         = "return" [ wyr ] | blok | wyr
 pole        = nazwa ":" wyr
 suma        = iloczyn { ( "+" | "-" ) iloczyn }
 iloczyn     = jedno { ( "*" | "/" | "%" ) jedno }
@@ -125,12 +125,12 @@ Reguły, które łatwo przeoczyć:
 - **Porównania się nie łączą.** `a < b < c` to błąd składni. Pisze się `a < b && b < c` (zob. [zalozenia.md](zalozenia.md#typy-z-warunkami)).
 - **`not` obejmuje całe porównanie:** `not a == b` znaczy `not (a == b)`.
 - **Wartość pola w `with` sięga do przecinka.** `p with ok: p.n >= 0` znaczy `p with ok: (p.n >= 0)`. Przecinek kończy wartość tylko wtedy, gdy po nim stoi `nazwa:`, a w przeciwnym razie należy do otaczającego nawiasu. `with` z polami w kolejnych liniach działa tylko w nawiasach, bo poza nimi nowa linia kończy instrukcję.
-- **Wartość po `or` kończy się na dodawaniu.** `x as T or a + 1` działa, ale `x as Flag or b > 0` znaczy `(x as Flag or b) > 0` (zob. propozycję niżej).
+- **Wartość po `or` to całe wyrażenie**, tak jak po `return`: `x as Flag or b > 0` znaczy `x as Flag or (b > 0)`. Kończy ją przecinek albo nawias otaczającego wywołania.
+- **`or` to nie lub logiczne.** Stoi tylko po `as Typ` i mówi, co zrobić, gdy zamiana się nie uda. Lub logiczne to `||`, a `a > 0 or b > 0` to błąd składni z podpowiedzią.
 - **`try` wiąże mocniej niż działania:** `try f(x) + 1` znaczy `(try f(x)) + 1`.
 - **Wywołać można tylko funkcję po nazwie albo metodę.** Lambdy w zmiennej nie wywołuje się przez `f(x)`. Lambda ma dokładnie jeden parametr.
 - **Argumenty mogą mieć nazwy:** `Line(name: "A", quantity: 1)`. Rekord i wariant z polami tworzy się tylko z nazwami pól.
 
 ## Propozycje do decyzji
 
-- **PROPOZYCJA: wartość po `or` do końca wyrażenia.** Dziś wartość domyślna po `or` kończy się na `+` i `-`, tak jak do niedawna wartość pola w `with`. `y = x as Flag or b > 0` przechodzi `sowa check`, a w czasie działania kończy się błędem „nie da się porównać true i 0”. Propozycja: po `or` stoi całe wyrażenie, tak jak po `return`. Wtedy `or` zamiany wiązałoby słabiej niż `||` i `&&`, co da się przeczytać tylko w jeden sposób, bo `or` nie jest operatorem logicznym (zob. [zalozenia.md](zalozenia.md#zamiana-wartości-as--or)).
 - **PROPOZYCJA: ciąg linii także po `+`, `-` i `or`.** Dziś długie wyrażenie arytmetyczne łamie się tylko w nawiasach. Lista operatorów, od których może zaczynać się ciąg linii, mogłaby objąć też `+`, `-`, `*`, `/`, `or` i `with`.

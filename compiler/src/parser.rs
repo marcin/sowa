@@ -635,6 +635,10 @@ impl Parser {
             let r = self.and_expr()?;
             l = Self::bin(l, "||", r);
         }
+        // `or` bez `as` przed nim: to nie jest lub logiczne.
+        if self.is_kw("or") {
+            return Err(self.err("`or` stoi tylko po `as Typ`; lub logiczne to `||`"));
+        }
         Ok(l)
     }
 
@@ -706,7 +710,9 @@ impl Parser {
                     } else if matches!(self.peek(), Tok::Newline) && matches!(self.peek_at(1), Tok::Indent) {
                         alt = Some(Box::new(Alt::Block(self.block()?)));
                     } else {
-                        alt = Some(Box::new(Alt::Value(self.add_expr()?)));
+                        // Wartość domyślna to całe wyrażenie, jak po `return`:
+                        // `x as Flag or b > 0` to `x as Flag or (b > 0)`.
+                        alt = Some(Box::new(Alt::Value(self.expr()?)));
                     }
                 }
                 let line = e.line;
