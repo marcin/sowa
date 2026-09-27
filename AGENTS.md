@@ -1,6 +1,6 @@
 # Sowa
 
-Projekt języka programowania na erę AI (na razie tylko specyfikacja i przykłady, bez kompilatora).
+Projekt języka programowania na erę AI: specyfikacja, przykłady i najprostszy kompilator do JavaScriptu (`compiler/`, Rust, uruchamia Bun).
 
 Przed pracą przeczytaj:
 - docs/zalozenia.md – zasady i ustalona składnia (źródło prawdy)

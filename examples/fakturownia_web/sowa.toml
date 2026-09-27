@@ -8,11 +8,15 @@ docs = "docs"
 # Zasoby, które runtime przekazuje do main według nazwy parametru:
 # fn main(db: Db, clock: Clock, ksef: Http, web: Server). Innych uprawnień program
 # nie ma. Adresy z db, ksef i web to jedyne połączenia sieciowe, na które pozwala runtime.
-# Podawanie sekretów (token_env) to jeszcze otwarte pytanie.
+# Baza to plik SQLite obok sowa.toml. Token do KSeF runtime czyta ze zmiennej KSEF_TOKEN.
+# `sowa run --fake ksef` podmienia ksef na atrapę z [resources.test].
 [resources]
-db    = { type = "Db", url = "postgres://localhost/fakturownia" }
+db    = { type = "Db", url = "sqlite:fakturownia.db" }
 clock = { type = "Clock" }
-ksef  = { type = "Http", url = "https://ksef.pl/api", token_env = "KSEF_TOKEN" }
+# ksef.pl z dokumentacji to usługa wymyślona na potrzeby przykładu. Domena .example nigdy
+# nie istnieje, więc bez --fake wysyłka kończy się komunikatem „KSeF nie odpowiada”
+# i żadne dane nie wychodzą do cudzego serwera.
+ksef  = { type = "Http", url = "https://ksef.example/api", token_env = "KSEF_TOKEN" }
 web   = { type = "Server", listen = "0.0.0.0:8080" }
 
 # Zasoby dla sowa test: świeże przy każdym przykładzie, bez żadnego połączenia z siecią.

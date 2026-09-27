@@ -1,0 +1,19 @@
+# Efekt decrypt z ttfx (https://github.com/omacom/ttfx) przepisany na Sowę.
+# Przy tym samym ziarnie wypisuje co do bajta to samo co
+#   ttfx --seed N --frame-rate 0 --ignore-terminal-dimensions decrypt
+[project]
+name = "ttfx_decrypt"
+src  = "src"
+impl = "impl"
+docs = "docs"
+
+# PROPOZYCJA do decyzji człowieka: typy Random i Terminal są nowe w kompilatorze.
+# Random bierze ziarno ze zmiennej SEED (jak token_env w Http); bez niej losuje z zegara.
+# Terminal czyta całe stdin i pisze na stdout, bez dostępu do plików i sieci.
+[resources]
+random   = { type = "Random", seed_env = "SEED" }
+terminal = { type = "Terminal" }
+
+[resources.test]
+random   = { type = "Random", seed = 1 }
+terminal = { type = "Terminal" }

@@ -414,5 +414,11 @@ Izolowane procesy z supervisorem. Stan `observable` jest odpytywalny na żywo.
 - **Kompilacja:** kiedy własny backend zamiast TypeScriptu? Czy liczenie referencji wystarczy przy bibliotekach spoza Sowy, które mogą tworzyć cykle? Jaki domyślny limit pracy solvera? Po czym poznać, że język jest dość stabilny, żeby przepisać kompilator na Sowę? Czy etap 0 w Ruście utrzymywać dalej, np. do bootstrapu na nowej platformie?
 - **Aplikacja webowa:** luki z [próby](#aplikacja-webowa): `match` na listach i `_`, odczyt formularza i JSON, `html"..."`, `Server`, typy `HttpRequest` i `HttpResponse`, zapytania do bazy, sesje.
 - **Kod użytkowników:** czy kompilacja cudzego kodu Sowy na serwerze albo do WASM to osobny tryb kompilatora (bez `main`, bez `[resources]`, z limitami)? Czy pierwszy backend (TS) wystarczy do czasu WASM? Jakie domyślne limity fuel i pamięci? Czy użytkownik widzi błędy kompilatora po polsku? Zob. [Kod użytkowników](#kod-użytkowników).
+- **Z przykładu [ttfx_decrypt](../examples/ttfx_decrypt/)** (propozycje, kompilator już je obsługuje; szczegóły w [README](../examples/ttfx_decrypt/README.md#propozycje-do-decyzji)):
+  - `while warunek` z blokiem: przyjąć, czy wystarczy `for` po zakresie i rekurencja?
+  - `Random` z `int(min, max)` i `choice(lista)`, ziarno z `seed` albo `seed_env`: czy bez ziarna losować z zegara?
+  - `Terminal` z `read()`, `write(text)`, `exit(code)`: czy kod wyjścia ma raczej wynikać z wyniku `main`?
+  - wbudowane `at`, `join`, `split`, `chars`, `char`: nazwy i czy `at` poza listą to błąd programu, czy `Option`?
+  - pauza (`clock.sleep(ms)`?), żeby tempo animacji ustawiać w Sowie.
 - **Komentarze:** `//` czy `--`? (Nie `#`.)
 - **Rozszerzenie plików:** `.sowa`.

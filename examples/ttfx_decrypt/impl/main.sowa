@@ -1,0 +1,63 @@
+fn main(random: Random, terminal: Terminal)
+  raw = terminal.read()
+  if trim(raw) == ""
+    terminal.write("NO INPUT.\n")
+    terminal.exit(1)
+  input = join(split(raw, "\r\n"), "\n")
+  if contains(input, "\r") || contains(input, char(27))
+    terminal.write("ttfx_decrypt: tekst z \\r albo z sekwencjami ANSI nie jest obsługiwany\n")
+    terminal.exit(2)
+  canvas = read_canvas(input)
+  text = typed_symbols(canvas)
+  pool = cipher_symbols()
+  // Kolejność losowań jak w ttfx: najpierw sceny pisania wszystkich znaków, potem szyfrowania.
+  typing = text.map(_symbol => typing_scene(pool, random))
+  decrypt = text.map(s => decrypt_scene(s, pool, random))
+  esc = char(27)
+  height = len(canvas)
+  var glyphs = number_cells(canvas)
+  // Przed pierwszą klatką ttfx robi miejsce na animację: wiersze spacji i zapamiętana pozycja kursora.
+  blank = join(glyphs.map(row => join(row.map(g => g.text), "") + "\n"), "")
+  terminal.write(esc + "[?25l" + blank + esc + "7")
+  home = esc + "8" + esc + "7" + esc + "[" + to_string(height) + "A"
+
+  // Pisanie: w każdej klatce z szansą 76/101 pojawiają się dwa kolejne znaki.
+  total = len(text)
+  typing_time = duration(at(typing, 0))
+  var typed = 0
+  var remaining = 0
+  while typed < total || remaining > 0
+    if typed < total && random.int(0, 100) <= 75
+      typed = typed + 2
+      if typed > total
+        typed = total
+      remaining = typing_time
+    glyphs = glyphs.map(row => row.map(g =>
+      if g.order < 0 || g.order >= typed
+        return g
+      frames = at(typing, g.order)
+      if g.frame >= len(frames)
+        return g
+      return step(g, at(frames, g.frame))
+    ))
+    terminal.write(home + join(glyphs.map(row => join(row.map(g => g.text), "")), "\n"))
+    remaining = remaining - 1
+
+  // Szyfrowanie: wszystkie znaki naraz, aż ostatni skończy scenę.
+  var left = 0
+  for frames in decrypt
+    if duration(frames) > left
+      left = duration(frames)
+  glyphs = glyphs.map(row => row.map(g => g with frame: 0, ticks: 0))
+  while left > 0
+    glyphs = glyphs.map(row => row.map(g =>
+      if g.order < 0
+        return g
+      frames = at(decrypt, g.order)
+      if g.frame >= len(frames)
+        return g
+      return step(g, at(frames, g.frame))
+    ))
+    terminal.write(home + join(glyphs.map(row => join(row.map(g => g.text), "")), "\n"))
+    left = left - 1
+  terminal.write(esc + "[?25h\n")

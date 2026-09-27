@@ -13,11 +13,11 @@ fn route(method: Method, path: String) -> Route
       return SendToKsef(number: number)
     _ => return UnknownPath
 
-// Prywatna: rok i kolejny numer z adresu. Litery albo numer 0 to nieznany adres.
+// Prywatna: numer faktury z adresu, bez zmiany cyfr, żeby adres i numer były tym samym.
+// Adres, z którego nie wychodzi poprawny InvoiceNumber, to nieznany adres.
 fn read_number(year: String, seq: String) -> InvoiceNumber | UnknownPath
-  y = parse_int(year) as Int(α >= 2000 && α <= 9999) or return UnknownPath
-  s = parse_int(seq) as Int(α > 0) or return UnknownPath
-  return format_number(y, s)
+  number = "FV/" + year + "/" + seq
+  return number as InvoiceNumber or return UnknownPath
 
 fn invoice_path(number: InvoiceNumber) -> String(starts_with(α, "/invoices/"))
   return "/invoices/" + drop_prefix(number, "FV/")

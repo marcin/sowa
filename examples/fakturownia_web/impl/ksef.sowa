@@ -19,7 +19,7 @@ fn to_ksef(invoice: Invoice) -> KsefInvoice(α.gross == α.net + α.vat && α.nu
 
 fn send_to_ksef(invoice: Invoice(α.status == Issued), ksef: Http, db: Db, clock: Clock)
     -> Invoice(α.status is SentToKsef) | KsefError
-  // Adres bazowy (https://ksef.pl/api) i token są w [resources]; tu tylko ścieżka.
+  // Adres bazowy i token są w [resources] w sowa.toml; tu tylko ścieżka.
   match ksef.post("/invoices", to_json(to_ksef(invoice)))
     HttpResponse response =>
       if response.status != 200

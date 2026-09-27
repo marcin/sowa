@@ -1,6 +1,6 @@
 # PR: fakturownia_web
 
-Przykład, jak wygląda PR, w którym agent AI napisał całą aplikację, a człowiek ją zatwierdza. Sowa nie ma jeszcze kompilatora, więc wynik `sowa review` to szkic tego, co pokaże narzędzie. Numery linii zgadzają się z plikami w tym katalogu.
+Przykład, jak wygląda PR, w którym agent AI napisał całą aplikację, a człowiek ją zatwierdza. Kompilator z [compiler/](../../compiler) umie już `sowa check`, `sowa test` i `sowa run`, ale nie `sowa review`, więc wynik `sowa review` to szkic tego, co pokaże narzędzie. Numery linii zgadzają się z plikami w tym katalogu.
 
 ## Zadanie dla agenta
 
@@ -24,10 +24,10 @@ $ sowa review --base main
 Specyfikacja (src/, docs/, sowa.toml): nowy projekt examples/fakturownia_web
 
 Uprawnienia
-  [1] uprawnienie     db             sowa.toml:13             nowy zasób Db: postgres://localhost/fakturownia
-  [2] uprawnienie     clock          sowa.toml:14             nowy zasób Clock
-  [3] uprawnienie     ksef           sowa.toml:15             nowy zasób Http: https://ksef.pl/api, token z KSEF_TOKEN
-  [4] uprawnienie     web            sowa.toml:16             nowy zasób Server: nasłuch 0.0.0.0:8080
+  [1] uprawnienie     db             sowa.toml:14             nowy zasób Db: sqlite:fakturownia.db
+  [2] uprawnienie     clock          sowa.toml:15             nowy zasób Clock
+  [3] uprawnienie     ksef           sowa.toml:19             nowy zasób Http: https://ksef.example/api, token z KSEF_TOKEN
+  [4] uprawnienie     web            sowa.toml:20             nowy zasób Server: nasłuch 0.0.0.0:8080
   [5] uprawnienie     main           src/main.sowa:4          db: Db, clock: Clock, ksef: Http, web: Server
   [6] uprawnienie     handle         src/web.sowa:37          db: Db, clock: Clock, ksef: Http
   [7] uprawnienie     post_ksef      src/web.sowa:52          db: Db, clock: Clock, ksef: Http
@@ -44,16 +44,16 @@ Uprawnienia
       Http (ksef) mają tylko: main → handle → post_ksef → send_to_ksef
 
 Zasoby testowe i atrapy
- [17] usunięty test   db             sowa.toml:22             nowy zasób testowy: Db w pamięci
- [18] usunięty test   clock          sowa.toml:23             nowy zasób testowy: zegar zatrzymany na 2026-09-27T10:00:00
- [19] usunięty test   ksef           sowa.toml:24             nowa atrapa: ksef_fake
+ [17] usunięty test   db             sowa.toml:26             nowy zasób testowy: Db w pamięci
+ [18] usunięty test   clock          sowa.toml:27             nowy zasób testowy: zegar zatrzymany na 2026-09-27T10:00:00
+ [19] usunięty test   ksef           sowa.toml:28             nowa atrapa: ksef_fake
  [20] usunięty test   ksef_fake      src/ksef_fake.sowa:6     nowa atrapa, ciało w impl/ksef_fake.sowa (12 linii, do przeczytania)
 
 Osłabienia: brak (nowy projekt)
 Rozszerzenia: brak (nowy projekt)
 
 Zwykłe
-      26 typów, 15 czystych funkcji, 26 przykładów, 5 property, 2 bloki sowa w docs/
+      27 typów, 15 czystych funkcji, 26 przykładów, 5 property, 2 bloki sowa w docs/
 
 Warunki wyniku
       udowodnione (8):  totals, to_ksef, vat_percent, invoice_path, issue_invoice,
@@ -62,7 +62,7 @@ Warunki wyniku
                         line_net       src/invoice.sowa:47   Money(α >= 0): mnożenie z zaokrągleniem
                         format_number  src/invoice.sowa:43   InvoiceNumber: wyrażenie regularne
 
-impl/ (zwinięte): 8 plików, 310 linii
+impl/ (zwinięte): 8 plików, 313 linii
       do przeczytania (CODEOWNERS): impl/storage.sowa (40), impl/ksef_fake.sowa (12)
       mutacje wykryte 61 z 64; przeżyły:
         impl/storage.sowa:34   list_invoices: usunięte .reverse()      żaden test nie ma dwóch faktur
@@ -77,7 +77,7 @@ Opisy do przejrzenia (docs.lock pusty, wszystkie nowe):
 
 ## Co sprawdza człowiek
 
-Najpierw uruchamia aplikację i przechodzi cały przepływ: formularz z błędną ilością, poprawna faktura, wysyłka, drugi klik. Potem czyta wynik od góry:
+Najpierw uruchamia aplikację (`sowa run --fake ksef examples/fakturownia_web`, potem http://localhost:8080) i przechodzi cały przepływ: formularz z błędną ilością, poprawna faktura, wysyłka, drugi klik. Potem czyta wynik od góry:
 
 1. **Zasoby [1]–[4].** Czy program ma łączyć się tylko z tą bazą i z ksef.pl. `web` nasłuchuje na `0.0.0.0:8080`, a aplikacja nie ma logowania ([poza zakresem](docs/zalozenia.md#poza-zakresem)). Tu człowiek decyduje, czy to ma być `127.0.0.1`.
 2. **Kto ma `Http` [5]–[8].** Łańcuch jest jeden, a `post_invoice` i `issue_invoice` go nie mają. To wystarczy, żeby wiedzieć, że wystawienie niczego nie wysyła, bez czytania `impl/`.

@@ -6,6 +6,19 @@ Przykład zakłada, że całą aplikację napisał agent AI w jednym PR, a czło
 
 Reguły biznesowe są uproszczone. To ilustracja języka i procesu, a nie wzór rozliczania VAT.
 
+## Uruchomienie
+
+Potrzebny jest Rust (cargo) i [Bun](https://bun.sh). Z katalogu głównego repozytorium:
+
+```
+cargo build --manifest-path compiler/Cargo.toml
+compiler/target/debug/sowa check examples/fakturownia_web
+compiler/target/debug/sowa test examples/fakturownia_web
+compiler/target/debug/sowa run --fake ksef examples/fakturownia_web
+```
+
+Aplikacja działa pod http://localhost:8080, a faktury zapisuje w `fakturownia.db` obok `sowa.toml`. `--fake ksef` podmienia ksef.pl na atrapę z `[resources.test]`. Bez tej flagi wysyłka kończy się komunikatem „KSeF nie odpowiada”, bo adres z `[resources]` to domena `.example`, która nie istnieje. Więcej w [compiler/README.md](../../compiler/README.md).
+
 ## Jak powstaje i kto co czyta
 
 1. Agent pisze `src/`, `impl/`, `docs/` i `sowa.toml`, aż `sowa check` i `sowa test` przechodzą. Testy działają na zasobach z `[resources.test]`: baza w pamięci, zatrzymany zegar i atrapa ksef.pl. Żaden test nie łączy się z siecią.
@@ -66,13 +79,13 @@ fakturownia_web/
 
 ## Czego jeszcze nie ma w specyfikacji
 
-Warianty z danymi, blok po `=>` i `[resources.test]` są już w [specyfikacji](../../docs/zalozenia.md). Przykład używa też rzeczy, których w niej jeszcze nie ma. Wszystkie są w [przemyslenia.md](../../docs/przemyslenia.md#aplikacja-webowa):
+Warianty z danymi, blok po `=>` i `[resources.test]` są już w [specyfikacji](../../docs/zalozenia.md). Przykład używa też rzeczy, których w niej jeszcze nie ma. Wszystkie są w [przemyslenia.md](../../docs/przemyslenia.md#aplikacja-webowa). Kompilator obsługuje je tak, jak opisuje [compiler/README.md](../../compiler/README.md#reguły-których-nie-ma-w-specyfikacji); to propozycje, a nie decyzje:
 
 - `match` na kilku wartościach i na liście segmentów, `_` w `match` (`route`),
 - literały `html"..."` z escapowaniem według miejsca,
 - `as` z tekstu na rekord: formularz (`req.body as InvoiceForm`) i JSON (`as KsefInvoice`), a w drugą stronę `to_json`,
 - uprawnienie `Server` i `web.serve(...)`,
 - wbudowane typy `HttpRequest`, `HttpResponse`, `Method` i operacja `ksef.post(...)`,
-- API bazy: `db.save`, `db.get<T>`, `db.all<T>`, `db.transaction`, i schemat bazy w pamięci,
+- API bazy: `db.save`, `db.get<T>`, `db.all<T>`, `db.transaction`, i schemat bazy (w kompilatorze: jedna tabela klucz–wartość w SQLite),
 - sekrety: `token_env` w `[resources]`,
 - logowanie, sesje i CSRF: aplikacja ich nie ma ([założenia](docs/zalozenia.md#poza-zakresem)).
