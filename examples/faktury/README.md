@@ -41,7 +41,7 @@ faktury/
 | `sowa.toml` | sekcja `[effects]`: jakie efekty są dozwolone w projekcie, w których plikach i co musi mieć funkcja z `Net` albo `Db.write` |
 | `docs/uzytkownik/faktury.md` | odnośniki `{Percent}`, `{issue_invoice}` i bloki `sowa` uruchamiane jako testy |
 | nagłówki plików w `src/` | `desc` i `why zalozenia.md#...` na górze pliku, zamiast komentarza |
-| każda funkcja | trzy grupy oddzielone pustą linią: `effects`, dokumentacja (`desc`, `doc`, `why`, `example`), kod |
+| każda funkcja | cztery grupy oddzielone pustą linią: `effects`, opis (`desc`, `doc`, `why`), przykłady (`example`), kod |
 | `docs.lock` | które opisy trzeba przejrzeć po zmianie sygnatury |
 
 ## Czego jeszcze nie ustaliliśmy

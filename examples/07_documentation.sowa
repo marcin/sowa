@@ -15,6 +15,7 @@ fn apply_discount(total: Money, pct: Percent) -> Money
   desc Odejmuje rabat procentowy od kwoty.
   doc rabaty.md#naliczanie-rabatu
   why decyzje/rabat-od-brutto.md
+
   example apply_discount(100, 20) == 80
   example apply_discount(100, 0) == 100
   example apply_discount(100, 100) == 0
@@ -31,6 +32,7 @@ fn read_discount(input: Int) -> Percent | DiscountError
     Wartości spoza zakresu nie są przycinane do 0 albo 100,
     tylko zwracają InvalidDiscount.
   why decyzje/bez-przycinania-rabatu.md
+
   example read_discount(20) == 20
   example read_discount(150) == InvalidDiscount
 

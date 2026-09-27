@@ -17,6 +17,7 @@ type VatRate = Vat23 | Vat8 | Vat5 | Vat0 | Exempt
 
 fn vat_percent(rate: VatRate) -> Percent
   desc Stawka VAT w procentach. Zwolnienie (Exempt) liczy się jak 0%.
+
   example vat_percent(Vat23) == 23
   example vat_percent(Exempt) == 0
 
@@ -29,6 +30,7 @@ fn vat_percent(rate: VatRate) -> Percent
 
 fn read_nip(input: String) -> Nip | InvalidNip
   desc Zamienia NIP wpisany przez użytkownika (z kreskami lub spacjami) na Nip.
+
   example read_nip("123-456-32-18") == "1234563218"
   example read_nip("123") == InvalidNip
 

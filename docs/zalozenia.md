@@ -202,12 +202,12 @@ sowa.toml   @marcin
 *.lock      @marcin
 ```
 
-- Agent może przygotować wpis, ale PR nie wejdzie bez zgody właściciela.
+- Agent może przygotować wpis, ale PR nie wejdzie bez zgody właściciela. Warunek: agent ma osobne konto bez prawa zatwierdzania i scalania, a ochrona `main` nie ma wyjątku dla adminów. Szczegóły w [zatwierdzanie.md](zatwierdzanie.md#kiedy-codeowners-nie-wystarcza).
 - Diff pliku `.lock` jest listą kontrolną dla recenzenta: widać w nim dokładnie, co się zatwierdza („notify_buyer: Net”).
 - Agent nie poluzuje też polityki w `sowa.toml` (`allowed`, `files`, `rules`) bez zgody człowieka.
 - W AGENTS.md projektu jest reguła, że agent nie uruchamia `sowa review` i nie edytuje plików `*.lock`, a gdy `sowa check` zgłasza oczekujące zatwierdzenia, przekazuje je człowiekowi.
 
-Bez PR, gdy ktoś pracuje sam z agentem, można włączyć podpisywanie wpisów kluczem SSH, tak jak podpisuje się commity w gicie:
+Bez PR albo gdy agent działa na koncie człowieka, można włączyć podpisywanie wpisów kluczem SSH, tak jak podpisuje się commity w gicie:
 
 ```toml
 [review]
@@ -215,7 +215,7 @@ approvers = ["recenzent@example.com"]
 sign      = true
 ```
 
-`sowa review` podpisuje wtedy każdy wpis, a `sowa check --ci` sprawdza podpis na liście `approvers`. Agent nie ma klucza, jeśli klucz jest chroniony hasłem albo sprzętowo. To opcja, a nie domyślne zachowanie, bo wymaga konfiguracji.
+`sowa review` podpisuje wtedy każdy wpis, a `sowa check --ci` sprawdza podpis na liście `approvers`. Klucz musi wymagać potwierdzenia przy każdym użyciu (klucz sprzętowy, `ssh-add -c`), bo odblokowanego klucza w `ssh-agent` agent też może użyć. To opcja, a nie domyślne zachowanie, bo wymaga konfiguracji.
 
 ### Błędy
 
@@ -262,11 +262,14 @@ Każde słowo ma jedną formę, więc po samym słowie widać, czy to tekst, czy
 
 Linie stoją pod sygnaturą w stałej kolejności: `effects`, `desc`, `doc`, `why`, `example`. Każdą z nich można powtórzyć, np. dwie linie `why`, gdy funkcja wynika z dwóch decyzji. `desc`, `doc` i `why` działają też pod definicją typu.
 
-Funkcja ma trzy grupy oddzielone pustą linią, żeby się nie zlewały. Kolejności i odstępów pilnuje formatter:
+Funkcja ma cztery grupy oddzielone pustą linią, żeby się nie zlewały. Kolejności i odstępów pilnuje formatter:
 
 1. `effects`,
-2. dokumentacja: `desc`, `doc`, `why`, `example`,
-3. kod.
+2. opis: `desc`, `doc`, `why`,
+3. przykłady: `example`,
+4. kod.
+
+Przykłady są osobno, bo to kod, a nie tekst. Czyta się je inaczej niż opis, a przy kilku przykładach opis ginąłby w grupie.
 
 ```
 fn issue_invoice(form: InvoiceForm) -> Invoice | IssueError
@@ -285,13 +288,14 @@ fn apply_discount(total: Money, pct: Percent) -> Money
   desc Odejmuje rabat procentowy od kwoty.
   doc rabaty.md#naliczanie-rabatu
   why decyzje/rabat-od-brutto.md
+
   example apply_discount(100, 20) == 80
   example apply_discount(100, 0) == 100
 
   return total - total * pct / 100
 ```
 
-Brakującą grupę się pomija, bez podwójnych pustych linii. W typie z polami dokumentacja stoi na górze, a pola pod nią, po pustej linii.
+Brakującą grupę się pomija, bez podwójnych pustych linii. W typie z polami opis stoi na górze, a pola pod nią, po pustej linii.
 
 `desc` na kilka linii działa tak samo jak blok po `or`: samo słowo, a pod nim tekst z wcięciem. Blok kończy się tam, gdzie kończy się wcięcie.
 

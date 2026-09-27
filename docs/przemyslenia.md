@@ -75,7 +75,7 @@ Ogólna lekcja: skróty w stylu Ruby'ego sprawdzają się w zwykłym kodzie, ale
 
   `desc` w SQL-u znaczy „malejąco”, ale przy funkcji trudno to pomylić. Rozważaliśmy też `summary`.
 
-  Nagłówek funkcji dzielimy pustymi liniami na trzy grupy: `effects`, dokumentacja, kod. Bez odstępów linie `why` zlewały się z pierwszą linią kodu.
+  Nagłówek funkcji dzielimy pustymi liniami na cztery grupy: `effects`, opis (`desc`, `doc`, `why`), przykłady (`example`), kod. Bez odstępów linie `why` zlewały się z pierwszą linią kodu. Przykłady były początkowo w grupie opisu, ale to kod, a nie tekst: `example apply_discount(100, 20) == 80` pod `why decyzje/...` zlewało się z odnośnikami, a przy trzech przykładach grupa robiła się długa.
 
   Długość `desc` i liczbę przykładów przy kodzie ograniczają limity z `sowa.toml` (`[limits]`, z wartościami domyślnymi w języku). Po przekroczeniu `sowa check`, a nie formatter, prosi o przeniesienie do `.md`. Żeby agent nie „naprawiał” ostrzeżenia usuwaniem przykładów, `sowa check` pokazuje przy funkcji wszystkie jej testy, z kodu i z `.md`. `{Symbol}` działa też w `desc` i wiąże sekcję `.md` z symbolem w `docs.lock`.
 
@@ -188,7 +188,6 @@ Izolowane procesy z supervisorem. Stan `observable` jest odpytywalny na żywo.
 - **Granice dowodzenia:** czy ograniczyć warunki do arytmetyki liniowej? Co robić, gdy solver nie da rady (np. `total * pct / 100`)?
 - **`or` z wartością domyślną:** czy `input as Percent or 0` nie połyka po cichu błędnych danych? Może dopuszczać tylko `return` i blok.
 - **Wartości limitów:** czy 3 linie `desc`, 3 przykłady i 5 linii na przykład to dobre wartości domyślne? Sprawdzić na większym kodzie.
-- **`example` w grupie dokumentacji:** czy przykłady nie powinny być osobną, czwartą grupą? Przy wielu przykładach grupa dokumentacji robi się długa.
 - **`docs.lock`:** jaki ostateczny format? Zatwierdzanie opisane w [zatwierdzanie.md](zatwierdzanie.md), tam też kolejne otwarte pytania.
 - **Renderowanie `{Percent}`:** w jakim języku (polski, angielski)? Skąd brać tłumaczenia? Jak wyrenderować warunek z wywołaniem funkcji, np. `{Nip}` z `nip_checksum_ok(α)`? Może wtedy brać `desc` typu.
 - **Z przykładowego projektu [faktury](../examples/faktury/):**
