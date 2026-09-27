@@ -1,6 +1,6 @@
 # Sowa
 
-Szkic języka programowania na erę AI: **kod pisze agent, człowiek zatwierdza specyfikację**.
+Szkic języka programowania na erę AI: **kod pisze agent, człowiek (lub bardziej zaufany agent) zatwierdza specyfikację**.
 
 Agent w godzinę napisze 800 linii kodu. Nikt ich uczciwie nie przeczyta, więc review kończy się na „wygląda OK”. Sowa odwraca ten układ: człowiek czyta i zatwierdza krótką specyfikację, a kod, którego nie czyta, nie może wyjść poza to, co zatwierdził. Pilnuje tego kompilator, a nie dobra wola agenta.
 
@@ -52,12 +52,12 @@ Człowiek zatwierdza raz. Potem agent może jeszcze poprawiać `impl/`, ale każ
 
 ## Czego nie ma w innych językach
 
-Porównanie objęło popularne języki i kilkadziesiąt projektów języków dla AI ([porównanie](docs/porownanie.md)). Najbliżej jest [Aver](https://github.com/jasisz/aver), z tą samą tezą: „AI pisze, człowiek przegląda kontrakty”. Tam przegląd jest jednak zaleceniem, a agent może po cichu zmienić kontrakt albo test. W Sowie zatwierdzanie jest egzekwowane:
+Porównanie objęło popularne języki i kilkadziesiąt projektów języków dla AI ([porównanie](docs/porownanie.md)). W Sowie zatwierdzanie jest egzekwowane, czego nie ma w żadnym z przejrzanych projektów:
 
 1. **Specyfikacja to granica, a nie widok.** Człowiek zatwierdza `src/` przez CODEOWNERS, `impl/` jest w PR zwinięty, a kompilator nie pozwala kodowi wyjść poza specyfikację. W OCamlu (`.mli`) i Adzie (`.ads`) podział plików służy kompilacji, a w Sowie odpowiedzialności. Kod wybranego modułu możesz też czytać: wystarczy dopisać go do CODEOWNERS. [Specyfikacja i kod](docs/specyfikacja.md)
 2. **Zatwierdzasz raz, działającą całość.** Nie czytasz pomysłu, który za godzinę się zmieni. Agent buduje, aż testy przejdą, a ty zatwierdzasz wersję końcową. Po zatwierdzeniu `sowa check --ci` pilnuje, że specyfikacja już się nie zmieni, a poprawki w `impl/` nie wymagają ponownej zgody. [Zatwierdzanie](docs/zatwierdzanie.md)
 3. **Lista decyzji zamiast diffu.** Nowe uprawnienie, luźniejszy warunek w typie, usunięty test: `sowa review` wyciąga je z całej zmiany i ustawia na górze. Czy warunek jest luźniejszy, rozstrzyga solver i pokazuje kontrprzykład („dopuszcza 101”). Zwykły diff pokazuje to tak samo jak zmianę nazwy zmiennej.
-4. **Uprawnienia jako zwykłe parametry.** `mail: Mailer` w sygnaturze znaczy „ten jeden serwer z `sowa.toml`”, a funkcja bez takich parametrów jest czysta. Nie trzeba osobnej konfiguracji architektury: z sygnatur w `src/` widać, który moduł może wysyłać, a który tylko liczy. Aver i Deno mają listę dozwolonych hostów, ale dla całego programu i dopiero w runtime. Języki z object capabilities (E, Pony, Austral) znają ten pomysł. Sowa łączy go z zatwierdzaniem: nowe uprawnienie zawsze jest na górze listy.
+4. **Uprawnienia jako zwykłe parametry.** `mail: Mailer` w sygnaturze znaczy „ten jeden serwer z `sowa.toml`”, a funkcja bez takich parametrów jest czysta. Nie trzeba osobnej konfiguracji architektury: z sygnatur w `src/` widać, który moduł może wysyłać, a który tylko liczy. Deno ma listę dozwolonych hostów, ale dla całego programu i dopiero w runtime. Języki z object capabilities (E, Pony, Austral) znają ten pomysł. Sowa łączy go z zatwierdzaniem: nowe uprawnienie zawsze jest na górze listy.
 5. **Testy, których agent nie osłabi.** `example`, `property` i warunki wyniku (`-> Money(α <= total)`) w `src/` są częścią specyfikacji, więc agent nie poprawi testu, żeby przeszedł. Dane do `property` generują się z typów. W planie są testy mutacyjne, których wynik człowiek zobaczy zamiast kodu.
 6. **Opisy, które nie zestarzeją się po cichu.** Doctesty (Rust, Elixir) sprawdzają kod w dokumentacji, ale nie tekst. Gdy zmieni się sygnatura, `docs.lock` wskaże akapity, które trzeba przejrzeć. Odnośniki z kodu do `.md` i `{Symbol}` w `.md` sprawdza kompilator.
 7. **Proces, którego nie da się obejść po cichu.** `sowa check` sprawdza też sam proces: czy CODEOWNERS obejmuje `src/`, `docs/`, `sowa.toml` i `docs.lock`. Bez tego wszystkie powyższe zabezpieczenia byłyby tylko umową.
@@ -111,4 +111,4 @@ Na wejściu 4 razy większym Sowa → Rust jest ok. 12% wolniejsza od ttfx. Szcz
 
 ## Status
 
-Na razie to głównie projekt na papierze: specyfikacja i przykłady. [compiler/](compiler/) to kompilator do Rusta (testowo także do JavaScriptu dla Buna): `sowa check`, `sowa test` i `sowa run` działają na [examples/fakturownia_web](examples/fakturownia_web/), [examples/invoices](examples/invoices/), [examples/ttfx_decrypt](examples/ttfx_decrypt/) i [examples/ttfx_decrypt_fast](examples/ttfx_decrypt_fast/). Działają też `sowa review --base main` z małym solverem, który podaje kontrprzykłady, `docs.lock` i `sowa check --ci` z zatwierdzeniem z GitHuba ([przykład wyniku](examples/fakturownia_web/PR.md)). Nie ma jeszcze dowodzenia warunków wyniku, testów mutacyjnych ani zatwierdzania podpisanym commitem. Uwagi i krytyka mile widziane.
+Na razie to głównie projekt na papierze: specyfikacja i przykłady. [compiler/](compiler/) to kompilator do Rusta (testowo także do JavaScriptu dla Buna): `sowa check`, `sowa test` i `sowa run` działają na [examples/fakturownia_web](examples/fakturownia_web/), [examples/invoices](examples/invoices/), [examples/ttfx_decrypt](examples/ttfx_decrypt/) i [examples/ttfx_decrypt_fast](examples/ttfx_decrypt_fast/). Działają też `sowa review --base main` z małym solverem, który podaje kontrprzykłady, `docs.lock` i `sowa check --ci` z zatwierdzeniem z GitHuba albo podpisanym commitem (`sowa review --approve`) ([przykład wyniku](examples/fakturownia_web/PR.md)). CI tego repozytorium uruchamia je na każdym PR. Nie ma jeszcze dowodzenia warunków wyniku ani testów mutacyjnych. Uwagi i krytyka mile widziane.

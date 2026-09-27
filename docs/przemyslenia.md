@@ -85,7 +85,7 @@ Ogólna lekcja: skróty w stylu Ruby'ego sprawdzają się w zwykłym kodzie, ale
   - Go: funkcje `Example` jako testy i dokumentacja,
   - Eiffel, Dafny: kontrakty trafiają do dokumentacji automatycznie,
   - Unison: dokumentacja jako wartość z typowanym kodem,
-  - reqlan, Aver, Prove, Pact: nazwane wymagania lub bloki `intent` przypięte do kodu,
+  - reqlan, Prove, Pact: nazwane wymagania lub bloki `intent` przypięte do kodu,
   - Cucumber / Gherkin: specyfikacja w języku naturalnym wykonywana jako testy.
 
   Wykrywania nieaktualnego opisu po zmianie sygnatury (`docs.lock`) nie znaleźliśmy w takiej formie nigdzie. To może być wyróżnik Sowy.
@@ -241,7 +241,6 @@ Katalog [agentlanguages.dev](https://agentlanguages.dev) (stan na 21.09.2026) ś
 
 - **Vera:** obowiązkowe kontrakty, Z3 z przejściem na sprawdzanie w runtime, wywołanie LLM jako typowany efekt.
 - **Thermite:** klauzule `req` / `ens` / `fx`, poziom pewności każdego zobowiązania (Verus, Lean).
-- **Aver:** intencja, efekty i blok weryfikacji przy każdej funkcji, eksport do Lean 4 i Dafny.
 - **Vow:** „przysięgi” sprawdzane maszynowo, skill dla Claude Code.
 - **Zero** (Vercel Labs): diagnostyka w JSON ze stałymi kodami i planami naprawy.
 - **Boruna:** deterministyczne wykonanie z uprawnieniami i łańcuchy dowodowe.

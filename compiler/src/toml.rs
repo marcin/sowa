@@ -1,5 +1,6 @@
 // Mały podzbiór TOML, który wystarcza na sowa.toml: sekcje [a] i [a.b], klucze z tekstem,
-// liczbą, true/false albo tabelą w jednej linii { k = v, ... }, komentarze `#`.
+// liczbą, true/false, listą w jednej linii [a, b] albo tabelą w jednej linii { k = v, ... },
+// komentarze `#`.
 
 use std::collections::BTreeMap;
 
@@ -8,6 +9,7 @@ pub enum Value {
     Str(String),
     Int(i64),
     Bool(bool),
+    List(Vec<Value>),
     Table(Vec<(String, Value)>),
 }
 
@@ -120,6 +122,24 @@ impl P {
                 }
                 Err("niezamknięty tekst".into())
             }
+            Some('[') => {
+                self.i += 1;
+                let mut items = vec![];
+                loop {
+                    self.ws();
+                    if self.c.get(self.i) == Some(&']') {
+                        self.i += 1;
+                        return Ok(Value::List(items));
+                    }
+                    items.push(self.value()?);
+                    self.ws();
+                    match self.c.get(self.i) {
+                        Some(',') => self.i += 1,
+                        Some(']') => {}
+                        _ => return Err("oczekiwano `,` albo `]` w liście".into()),
+                    }
+                }
+            }
             Some('{') => {
                 self.i += 1;
                 let mut items = vec![];
@@ -153,7 +173,7 @@ impl P {
             Some(_) => {
                 let mut s = String::new();
                 while let Some(&c) = self.c.get(self.i) {
-                    if c == ',' || c == '}' || c == ' ' {
+                    if c == ',' || c == '}' || c == ']' || c == ' ' {
                         break;
                     }
                     s.push(c);
@@ -167,5 +187,21 @@ impl P {
             }
             None => Err("brak wartości".into()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lists() {
+        let d = parse("[review]\napprovers = [\"@anna\", \"piotr@firma.pl\"]\nempty = []\nmixed = [1, true, \"x\"]\n").unwrap();
+        let es = &d["review"];
+        let Value::List(xs) = &es[0].value else { panic!() };
+        assert!(matches!(&xs[..], [Value::Str(a), Value::Str(b)] if a == "@anna" && b == "piotr@firma.pl"));
+        assert!(matches!(&es[1].value, Value::List(xs) if xs.is_empty()));
+        assert!(matches!(&es[2].value, Value::List(xs) if xs.len() == 3));
+        assert!(parse("[a]\nk = [1 2]\n").is_err());
     }
 }

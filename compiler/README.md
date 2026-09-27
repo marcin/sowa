@@ -4,7 +4,7 @@ Najprostszy kompilator, który wystarcza, żeby sprawdzić, przetestować i uruc
 
 Drugi backend tłumaczy projekt na jeden plik JavaScript, który uruchamia [Bun](https://bun.sh) (`--bun`, baza z `bun:sqlite`). Jest tylko do testów i porównań: działa i przechodzi te same testy, ale nowe funkcje trafiają najpierw do Rusta.
 
-`sowa review` porównuje specyfikację z inną wersją w gicie i sortuje zmiany od najbardziej ryzykownej, a mały solver rozstrzyga, czy zmieniony warunek jest luźniejszy, i podaje kontrprzykład. `sowa check --ci` pilnuje, żeby po zatwierdzeniu PR specyfikacja się nie zmieniła. Warunków w programie kompilator nie dowodzi, tylko sprawdza je w runtime. Testów mutacyjnych nie ma.
+`sowa review` porównuje specyfikację z inną wersją w gicie i sortuje zmiany od najbardziej ryzykownej, a mały solver rozstrzyga, czy zmieniony warunek jest luźniejszy, i podaje kontrprzykład. `sowa check --ci` pilnuje, żeby po zatwierdzeniu PR albo podpisanym zatwierdzeniu (`sowa review --approve`) specyfikacja się nie zmieniła. Warunków w programie kompilator nie dowodzi, tylko sprawdza je w runtime. Testów mutacyjnych nie ma.
 
 ## Użycie
 
@@ -16,7 +16,8 @@ sowa build [KATALOG]               # kompiluje program do KATALOG/.sowa/app_rs
 sowa run [--fake ZASÓB] [KATALOG]  # buduje i uruchamia
 sowa review --base REF [KATALOG]   # zmiany w znaczeniu specyfikacji względem REF (gałąź, tag, commit)
 sowa review --confirm-docs[=OPIS]  # zapisuje w docs.lock przejrzane opisy (wszystkie albo jeden)
-sowa check --ci [KATALOG]          # w GitHub Actions: czy specyfikacja nie zmieniła się po zatwierdzeniu PR
+sowa review --approve [KATALOG]    # zatwierdza specyfikację z HEAD commitem podpisanym kluczem SSH
+sowa check --ci [KATALOG]          # czy specyfikacja nie zmieniła się po zatwierdzeniu (PR albo podpis)
 sowa check --approved-at REF       # to samo bez GitHuba: REF to zatwierdzony commit
 sowa test --bun / build --bun / run --bun   # to samo przez Buna: KATALOG/.sowa/app.js
 ```
@@ -37,22 +38,19 @@ sowa test --bun / build --bun / run --bun   # to samo przez Buna: KATALOG/.sowa/
 
 **`docs.lock`** (`src/docslock.rs`) ma wiersz na każde powiązanie opisu z symbolem: sekcję `.md` albo cały plik, symbol, sposób powiązania (`doc`, `why` albo `{}`), 6 znaków hasha, kto i kiedy przejrzał. `sowa check` zgłasza uwagę przy każdym opisie, którego hash się zmienił albo którego jeszcze nie ma w pliku. `sowa review --confirm-docs` zapisuje bieżące hashe z adresem z `git config user.email`. Plik jest pod CODEOWNERS, więc potwierdzenie agenta i tak czeka na zgodę właściciela.
 
-**`sowa check --ci`** (`src/ci.rs`) czyta przez `gh api` recenzje PR, bierze ostatnie zatwierdzenie osoby z CODEOWNERS (zespół `@org/nazwa` rozwija przez API, co wymaga `read:org`) i porównuje zatwierdzony commit z głową PR. Zmiana w `src/`, `docs/`, `sowa.toml`, `docs.lock`, CODEOWNERS albo w pliku z właścicielem to błąd. Zmiana w innych plikach `impl/` przechodzi. Bez zatwierdzenia check przechodzi z uwagą, bo wymóg zatwierdzenia egzekwuje ochrona gałęzi. Przykładowy workflow:
+**`sowa check --ci`** (`src/ci.rs`) czyta przez `gh api` recenzje PR, bierze ostatnie zatwierdzenie osoby z CODEOWNERS (zespół `@org/nazwa` rozwija przez API, co wymaga `read:org`) i porównuje zatwierdzony commit z głową PR. Zmiana w `src/`, `docs/`, `sowa.toml`, `docs.lock`, CODEOWNERS albo w pliku z właścicielem to błąd. Zmiana w innych plikach `impl/` przechodzi. Bez zatwierdzenia check przechodzi z uwagą, bo wymóg zatwierdzenia egzekwuje ochrona gałęzi.
 
-```yaml
-on:
-  pull_request:
-  pull_request_review:
-    types: [submitted, dismissed]
-jobs:
-  sowa:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }   # zatwierdzony commit musi być w repozytorium
-      - run: sowa check --ci
-        env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+**Zatwierdzenie podpisem** (`src/sign.rs`) jest dla pracy bez PR albo na jednym koncie, gdzie recenzji PR nie ma albo agent mógłby ją złożyć sam. Włącza je `[review]` w `sowa.toml`:
+
+```toml
+[review]
+approvers = ["@marcin", "reviewer@intum.com"]
+sign      = true
 ```
+
+`sowa review --approve` robi na bieżącej gałęzi pusty commit podpisany kluczem SSH z `git config user.signingkey` (`gpg.format = ssh`), z wierszem `Sowa-Approved: <katalog projektu>`. Commit powstaje przez `git commit-tree`, więc nie zabiera niczego z indeksu. Gdy pliki specyfikacji mają zmiany poza commitem, `--approve` odmawia. `sowa check --ci` szuka najnowszego commitu z `Sowa-Approved` dla tego projektu, z ważnym podpisem osoby z `approvers`, i porównuje go z katalogiem roboczym, jak `--approved-at`. Commit podpisany innym kluczem albo dla innego projektu się nie liczy. Klucze nie pochodzą z repozytorium, bo agent mógłby dopisać swój: `@login` bierze klucze do podpisu (Signing keys) z konta na GitHubie, a adres e-mail wiersze z pliku `allowed_signers` z `SOWA_ALLOWED_SIGNERS` albo `git config gpg.ssh.allowedSignersFile`. Klucz powinien wymagać potwierdzenia przy każdym użyciu (klucz sprzętowy albo `ssh-add -c`), bo agent na tym samym komputerze może go użyć.
+
+Workflow tego repozytorium to [.github/workflows/sowa.yml](../.github/workflows/sowa.yml). Buduje kompilator, uruchamia `cargo test`, `sowa check` i `sowa test` na każdym `examples/*/sowa.toml`, w PR `sowa check --ci`, a raport `sowa review` względem gałęzi docelowej wstawia jako jeden komentarz w PR, poprawiany przy każdym pushu. Checkout bierze głowę PR z `fetch-depth: 0`: zatwierdzony commit musi być w repozytorium, a przy podpisie porównanie idzie z katalogiem roboczym, więc nie może to być commit scalenia z `main`. Na Linuksie programy z `Db` potrzebują `libsqlite3-dev`.
 
 Czasy kompilacji i działania w różnych ustawieniach, w tym z Cranelift, są w [docs/kompilacja.md](../docs/kompilacja.md).
 
@@ -73,6 +71,7 @@ Czasy kompilacji i działania w różnych ustawieniach, w tym z Cranelift, są w
 | `src/solver.rs` | czy jeden warunek wynika z drugiego, z kontrprzykładem |
 | `src/docslock.rs` | powiązania opisów z symbolami, hashe, uwagi i zapis `docs.lock` |
 | `src/ci.rs` | `sowa check --ci`: zatwierdzenie z API GitHuba i zmienione pliki od niego |
+| `src/sign.rs` | `[review]`, `sowa review --approve` i sprawdzenie podpisanego zatwierdzenia |
 | `src/runtime.rs` | runtime dla Rusta, doklejany na początek `test_rs.rs` i `app_rs.rs` (nie jest modułem crate'a): te same wartości, typy, JSON, baza przez FFI do SQLite, serwer na `std::net`, Http przez libcurl, generator property i raport |
 
 ## Co sprawdza `sowa check`
@@ -110,7 +109,8 @@ Kompilator musiał jakoś rozstrzygnąć rzeczy, których [specyfikacja](../docs
 - **`==` na różnych typach.** PROPOZYCJA: w runtime `"1" == 1` to `false`, a `sowa check` zgłasza to jako błąd, bo taki warunek nigdy nie jest prawdziwy.
 - **Typy w `impl/`.** Plik w `impl/` może definiować własne typy (np. `VatInputError` w `impl/issuing.sowa`). Ich nazwy są globalne jak wszystkie inne.
 - **Potwierdzanie opisów.** PROPOZYCJA: specyfikacja mówi, że `sowa review` „pyta” o opisy. Tu `sowa review --base` tylko je wypisuje, a potwierdza się osobno: `sowa review --confirm-docs` (wszystkie) albo `--confirm-docs=plik.md#sekcja` (jeden). Dzięki temu review działa bez terminala, np. w CI. Powiązanie to para (opis, symbol); nagłówek pliku z `doc`/`why` wiąże cały plik, a `{Symbol}` najbliższą sekcję nad nim.
-- **Zatwierdzenie bez GitHuba.** PROPOZYCJA: `sowa check --approved-at REF` porównuje `REF` z katalogiem roboczym. Służy do sprawdzenia lokalnego i na innych platformach, dopóki nie ma podpisanych commitów (`--approve`).
+- **Zatwierdzenie bez GitHuba.** PROPOZYCJA: `sowa check --approved-at REF` porównuje `REF` z katalogiem roboczym. Służy do sprawdzenia lokalnego i na platformach bez recenzji PR w API GitHuba.
+- **Zatwierdzenie podpisem.** PROPOZYCJA: `[review] sign = true` zamienia recenzję PR na podpisany commit z `sowa review --approve`. `approvers` to lista `"@login"` (klucze do podpisu z GitHuba) albo adresów e-mail (klucze z `SOWA_ALLOWED_SIGNERS`). Wiersz `Sowa-Approved` ma katalog projektu względem korzenia repozytorium, więc jedno repozytorium może mieć kilka projektów z osobnymi zatwierdzeniami. Zatwierdzenie dotyczy drzewa plików commitu, a nie gałęzi: liczy się najnowszy ważny commit w historii `HEAD`, a zmiany po nim ocenia się jak po zatwierdzeniu PR. `[review] agent` jest przyjmowany, ale daje tylko uwagę, bo drugi agent-recenzent jeszcze nie działa.
 - **Kategorie w review.** PROPOZYCJA, poza tabelą z [zalozenia.md](../docs/zalozenia.md#sowa-review): zmiana w `[review]` w `sowa.toml` to uprawnienie (zmienia, kto zatwierdza); nowy wariant w typie, który stoi w wyniku funkcji ze specyfikacji, to osłabienie, a w innym typie zwykła zmiana; zmienione ciało atrapy w `impl/` to usunięty test; zawężenie `type X = T(warunek)` bez zmiany znaczenia to zwykła zmiana z dopiskiem „to samo znaczenie”. Nowa funkcja z uprawnieniem to uprawnienie, a nowa czysta funkcja zwykła zmiana.
 - **Warianty w solverze.** PROPOZYCJA: `α.status != Issued` przy typie `Issued | Paid | Cancelled` solver rozumie jako „jeden z pozostałych wariantów”, więc `== Paid` jest ostrzejsze od `!= Issued`, a kontrprzykładem jest konkretny wariant.
 - **Property.** Parametry bez uprawnień są losowane z typu: 100 przypadków, ziarno z pliku i linii, więc wynik jest powtarzalny. Generator korzysta z warunku (`α > 0`, `len(α) == 10`, `matches(α, "...")`, `only_digits`, `nip_checksum_ok`, `valid_email`, `starts_with`) i odrzuca wartości, które warunku nie spełniają. Teksty losuje też z listy trudnych przypadków (`<script>`, `&`, cudzysłowy, polskie litery).
@@ -120,5 +120,5 @@ Kompilator musiał jakoś rozstrzygnąć rzeczy, których [specyfikacja](../docs
 - `match` na kilku wartościach nie jest sprawdzany pod kątem kompletności; brak pasującej gałęzi to błąd programu w runtime.
 - Wnioskowanie typów jest lokalne i ostrożne: nie zawęża typu po `is`, nie wyprowadza wyniku lambdy z blokiem, nie porównuje elementów list (`List<Int>` i `List<String>` to dla niego ta sama `List`) ani typów wbudowanych funkcji poza `len`, `at`, `join` i podobnymi. Warunków w typach (`Int(α > 0)`) nie sprawdza, tylko ich podstawę. Część błędów typów wychodzi więc dopiero w runtime albo w testach.
 - Solver zna tylko arytmetykę liniową na liczbach całkowitych, `len`, pola i warianty. Mnożenie dwóch zmiennych, `matches` i wywołania funkcji porównuje tekstowo.
-- `sowa review` nie pokazuje, które warunki wyniku są udowodnione, i nie ma testów mutacyjnych. Nie ma też `sowa review --approve` (podpisany commit), `[review] agent` ani grupowania dużych zmian po module.
-- `sowa check --ci` działa tylko z GitHubem i potrzebuje `gh` z tokenem. Po force-pushu, który usunął zatwierdzony commit, check nie przechodzi i trzeba zatwierdzić PR ponownie.
+- `sowa review` nie pokazuje, które warunki wyniku są udowodnione, i nie ma testów mutacyjnych. Nie ma też `[review] agent` ani grupowania dużych zmian po module.
+- `sowa check --ci` w trybie PR działa tylko z GitHubem i potrzebuje `gh` z tokenem; w trybie podpisu `gh` jest potrzebny tylko do kluczy `@login`. `sowa review --approve` nie podpisuje kluczem GPG ani X.509, tylko SSH. Po force-pushu, który usunął zatwierdzony commit, check nie przechodzi i trzeba zatwierdzić PR ponownie.

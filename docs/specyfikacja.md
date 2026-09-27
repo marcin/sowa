@@ -166,7 +166,6 @@ Plik trafia wtedy pod ochronę i nie jest zwinięty w PR. Check z [Zatwierdzenia
 
 ## Jak to robią inni
 
-- **[Aver](https://github.com/jasisz/aver)**: ta sama teza („AI pisze, człowiek przegląda kontrakty i intencję”). `aver context` pokazuje same kontrakty, a `[effects.Http] hosts` w `aver.toml` ogranicza hosty w runtime dla całego programu. Kontrakty nie są jednak granicą zatwierdzania: agent może je zmienić razem z kodem i nic tego nie oznaczy.
 - **Ada** (`.ads` i `.adb`), **OCaml** (`.mli` i `.ml`), pliki nagłówkowe w C: specyfikacja modułu osobno od implementacji. Stąd układ `src/` i `impl/`, ale tam chodzi o kompilację i widoczność, a nie o to, kto co zatwierdza.
 - **SPARK** (podzbiór Ady): kontrakty w specyfikacji, dowód, że ciało je spełnia. To najbliżej idei „zatwierdzasz specyfikację, a kompilator pilnuje reszty”.
 - **Obiekty uprawnień** (E, [Pony](https://www.ponylang.io), [Austral](https://austral-lang.org), WASI): funkcja może zrobić tylko to, na co pozwalają wartości, które dostała. Stąd uprawnienia w parametrach.

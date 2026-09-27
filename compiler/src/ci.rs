@@ -4,7 +4,8 @@
 // przez `gh`. Od zatwierdzonego commitu do bieżącej głowy PR mogą się zmieniać tylko pliki bez
 // właściciela, czyli zwykle impl/. Zmiana w src/, docs/, sowa.toml, docs.lock albo w pliku
 // z właścicielem wymaga ponownego zatwierdzenia. Z --approved-at COMMIT zatwierdzony commit
-// podaje się ręcznie, a porównanie idzie z katalogiem roboczym, bez GitHuba.
+// podaje się ręcznie, a porównanie idzie z katalogiem roboczym, bez GitHuba. Z [review] sign = true
+// zatwierdzeniem jest podpisany commit (src/sign.rs), a nie recenzja PR.
 
 use crate::check::glob_match;
 use crate::project::Project;
@@ -12,7 +13,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Command;
 
-fn run(root: &Path, prog: &str, args: &[&str]) -> Result<String, String> {
+pub fn run(root: &Path, prog: &str, args: &[&str]) -> Result<String, String> {
     let out = Command::new(prog)
         .current_dir(root)
         .args(args)
@@ -26,7 +27,7 @@ fn run(root: &Path, prog: &str, args: &[&str]) -> Result<String, String> {
 }
 
 // Pliki projektu, których zmiana wymaga zgody właściciela.
-fn is_spec(p: &Project, path: &str) -> bool {
+pub fn is_spec(p: &Project, path: &str) -> bool {
     let under = |d: &str| path.starts_with(&format!("{}/", d.trim_end_matches('/')));
     path == "sowa.toml"
         || path == crate::docslock::FILE
@@ -38,7 +39,7 @@ fn is_spec(p: &Project, path: &str) -> bool {
 
 // Zmienione pliki projektu (ścieżki od katalogu projektu) między `from` a `to`,
 // a bez `to` między `from` a katalogiem roboczym, razem z nowymi plikami spoza gita.
-fn changed(p: &Project, from: &str, to: Option<&str>) -> Result<Vec<String>, String> {
+pub fn changed(p: &Project, from: &str, to: Option<&str>) -> Result<Vec<String>, String> {
     let root = &p.root;
     for c in [Some(from), to].into_iter().flatten() {
         if run(root, "git", &["cat-file", "-e", &format!("{}^{{commit}}", c)]).is_err() {
@@ -63,7 +64,7 @@ fn changed(p: &Project, from: &str, to: Option<&str>) -> Result<Vec<String>, Str
     Ok(out)
 }
 
-fn short(c: &str) -> &str {
+pub fn short(c: &str) -> &str {
     if c.len() > 7 && c.chars().all(|x| x.is_ascii_hexdigit()) {
         &c[..7]
     } else {
@@ -71,19 +72,16 @@ fn short(c: &str) -> &str {
     }
 }
 
-fn verdict(p: &Project, approved: &str, files: Vec<String>) -> Result<String, String> {
+// `approved` to skrót commitu, czasem z dopiskiem, np. „3f2a91c, podpis @anna”.
+pub fn verdict(p: &Project, approved: &str, files: Vec<String>) -> Result<String, String> {
     let spec: Vec<String> = files.into_iter().filter(|f| is_spec(p, f)).collect();
     if spec.is_empty() {
-        return Ok(format!(
-            "{}: specyfikacja bez zmian od zatwierdzenia ({})",
-            p.name,
-            short(approved)
-        ));
+        return Ok(format!("{}: specyfikacja bez zmian od zatwierdzenia ({})", p.name, approved));
     }
     let list: Vec<String> = spec.iter().map(|f| format!("        {}", f)).collect();
     Err(format!(
         "błąd: specyfikacja zmieniła się po zatwierdzeniu (zatwierdzone na {})\n{}\n      potrzebne ponowne zatwierdzenie PR",
-        short(approved),
+        approved,
         list.join("\n")
     ))
 }
@@ -93,6 +91,10 @@ pub fn verify(p: &Project, approved_at: Option<&str>) -> Result<String, String> 
         let files = changed(p, c, None)?;
         let sha = run(&p.root, "git", &["rev-parse", "--short", c]).unwrap_or_else(|_| c.to_string());
         return verdict(p, &sha, files);
+    }
+    let cfg = crate::sign::config(p);
+    if cfg.sign {
+        return crate::sign::verify(p, &cfg.approvers);
     }
     let repo = std::env::var("GITHUB_REPOSITORY")
         .map_err(|_| "--ci działa w GitHub Actions (GITHUB_REPOSITORY); poza nim podaj --approved-at COMMIT".to_string())?;
@@ -121,7 +123,7 @@ pub fn verify(p: &Project, approved_at: Option<&str>) -> Result<String, String> 
     };
     let head = run(root, "gh", &["api", &format!("repos/{}/pulls/{}", repo, pr), "--jq", ".head.sha"])?;
     let files = changed(p, &approved, Some(head.trim()))?;
-    verdict(p, &approved, files)
+    verdict(p, short(&approved), files)
 }
 
 // Commit z ostatniego zatwierdzenia właściciela. Wiersze: login, stan, commit (chronologicznie).

@@ -921,6 +921,7 @@ fn val_text(v: &Value) -> String {
         Value::Str(s) => s.clone(),
         Value::Int(n) => n.to_string(),
         Value::Bool(b) => b.to_string(),
+        Value::List(xs) => format!("[{}]", xs.iter().map(val_text).collect::<Vec<_>>().join(", ")),
         Value::Table(kv) => {
             let a: Vec<String> = kv.iter().map(|(k, v)| format!("{} = {}", k, val_text(v))).collect();
             format!("{{ {} }}", a.join(", "))
