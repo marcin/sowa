@@ -83,6 +83,7 @@ Z samej sygnatury widać, że funkcja łączy się z bankiem, zapisuje do bazy i
 
 - [examples/invoices/](examples/invoices/): cały mały projekt do wystawiania faktur. Najszybciej pokazuje, o co chodzi.
 - [examples/fakturownia_web/](examples/fakturownia_web/): aplikacja webowa napisana tak, jakby pisał ją agent: wystawienie, zapis w bazie, wysyłka do KSeF. W [PR.md](examples/fakturownia_web/PR.md) jest wynik `sowa review`, z którego człowiek ją zatwierdza.
+- [examples/ttfx_decrypt/](examples/ttfx_decrypt/): efekt `decrypt` z [ttfx](https://github.com/omacom/ttfx) przepisany na Sowę. Wyjście jest identyczne z ttfx bajt w bajt, a przykład służy do pomiaru szybkości (niżej).
 - [docs/specyfikacja.md](docs/specyfikacja.md): specyfikacja i kod osobno, izolacja, uprawnienia, co blokuje które zagrożenie.
 - [docs/zatwierdzanie.md](docs/zatwierdzanie.md): zatwierdzenie na końcu, `sowa review`, `docs.lock`, CODEOWNERS i kiedy to nie wystarcza.
 - [docs/zalozenia.md](docs/zalozenia.md): zasady i ustalona składnia.
@@ -92,6 +93,20 @@ Z samej sygnatury widać, że funkcja łączy się z bankiem, zapisuje do bazy i
 - [examples/](examples/): krótkie przykłady składni.
 - [editors/vscode/](editors/vscode/): kolorowanie składni w VS Code.
 
+## Szybkość
+
+Program w Sowie kompiluje się do JavaScriptu (Bun) albo do Rusta (`sowa build --rust`). Backend Rust zna typy w kompilacji. Wartość czytaną ostatni raz przenosi zamiast ją klonować, więc `map` i `with` zmieniają listę i rekord w miejscu, jak w Koka, Lean i Roc.
+
+[examples/ttfx_decrypt](examples/ttfx_decrypt/) robi dokładnie tę samą pracę co ttfx, czyli Rust pisany ręcznie. Wejście to 60 wierszy tekstu, a wynik 1664 klatki, razem 44 MB wyjścia (macOS, Apple Silicon, mediana z 5 uruchomień):
+
+| Program | Czas | RAM |
+|---|---|---|
+| ttfx (Rust pisany ręcznie) | 59 ms | 28 MB |
+| Sowa → Rust | 53 ms | 14 MB |
+| Sowa → Bun | 2,48 s | 406 MB |
+
+Na wejściu 4 razy większym Sowa → Rust jest ok. 12% wolniejsza od ttfx. Szczegóły, zgodność bajt w bajt i sposób powtórzenia pomiaru są w [porownanie.md](examples/ttfx_decrypt/docs/porownanie.md).
+
 ## Status
 
-Na razie to głównie projekt na papierze: specyfikacja i przykłady. [compiler/](compiler/) to najprostszy kompilator do JavaScriptu (Bun): `sowa check`, `sowa test` i `sowa run` działają na [examples/fakturownia_web](examples/fakturownia_web/), bez solvera i bez `sowa review`. Następny krok to `sowa check` dla uprawnień, specyfikacji i dokumentacji oraz `sowa review` z solverem, sprawdzony na [examples/invoices](examples/invoices/) ([plan](docs/ocena.md#następny-krok)). Uwagi i krytyka mile widziane.
+Na razie to głównie projekt na papierze: specyfikacja i przykłady. [compiler/](compiler/) to kompilator do JavaScriptu (Bun) i do Rusta: `sowa check`, `sowa test` i `sowa run` działają na [examples/fakturownia_web](examples/fakturownia_web/) i [examples/ttfx_decrypt](examples/ttfx_decrypt/), bez solvera i bez `sowa review`. Następny krok to `sowa check` dla uprawnień, specyfikacji i dokumentacji oraz `sowa review` z solverem, sprawdzony na [examples/invoices](examples/invoices/) ([plan](docs/ocena.md#następny-krok)). Uwagi i krytyka mile widziane.
