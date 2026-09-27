@@ -5,16 +5,16 @@ Jak dziś Sowa zamienia się w działający program, ile to trwa i jakie są inn
 ## Dwie drogi dziś
 
 ```
-.sowa ─ lexer → parser → check ─┬─ codegen.rs    → .sowa/app.js   → Bun
-                                └─ codegen_rs.rs → .sowa/app_rs.rs → rustc (LLVM) → .sowa/app_rs
+.sowa ─ lexer → parser → check ─┬─ codegen_rs.rs → .sowa/app_rs.rs → rustc (LLVM) → .sowa/app_rs
+                                └─ codegen.rs    → .sowa/app.js   → Bun (--bun)
 ```
 
-| | JS dla Buna | Rust |
+| | Rust (domyślnie) | JS dla Buna (testowo) |
 |---|---|---|
-| polecenie | `sowa build`, `run`, `test` | to samo z `--rust` |
-| kompilacja | tylko generowanie JS, ok. 10 ms | generowanie Rusta i rustc: 3–6 s |
-| program | wolny: ttfx_decrypt 2,48 s, 406 MB | szybki: 50 ms, 14 MB (ręcznie pisany ttfx: 56 ms, 28 MB) |
-| do czego | codzienna praca, `sowa test` | wydanie, ciężkie testy, pomiary |
+| polecenie | `sowa build`, `run`, `test` | to samo z `--bun` |
+| kompilacja | generowanie Rusta i rustc: 3–6 s | tylko generowanie JS, ok. 10 ms |
+| program | szybki: 50 ms, 14 MB (ręcznie pisany ttfx: 56 ms, 28 MB) | wolny: ttfx_decrypt 2,48 s, 406 MB |
+| do czego | praca, wydanie, pomiary | szybka pętla testów i porównanie; na razie bez nowych funkcji |
 
 Obie drogi dają to samo: te same wyniki testów, te same komunikaty i te same wylosowane przypadki property. W ttfx_decrypt wyjście z obu dróg jest identyczne z ttfx bajt w bajt.
 
@@ -27,14 +27,14 @@ Tabela podaje czas od wpisania polecenia do wyniku, po zmianie w kodzie. Pomiar 
 | Polecenie | fakturownia_web | ttfx_decrypt |
 |---|---|---|
 | `sowa check` | 0,01 s | 0,00 s |
-| `sowa test` (Bun) | 0,08 s | 0,02 s |
-| `sowa test --rust`, rustc 1.98 (obecnie) | 6,4 s | 3,3 s |
-| `sowa test --rust`, nocny rustc, LLVM z `codegen-units=16` | 4,8 s | 2,4 s |
-| `sowa test --rust`, nocny rustc, Cranelift | 1,35 s | 0,88 s |
-| `sowa test --rust`, nocny rustc, Cranelift z `codegen-units=16` | 1,25 s | 0,80 s |
-| `sowa test --rust` bez zmian w kodzie (kompilacja pominięta) | 0,04 s | 0,01 s |
+| `sowa test --bun` | 0,08 s | 0,02 s |
+| `sowa test`, rustc 1.98 (obecnie) | 6,4 s | 3,3 s |
+| `sowa test`, nocny rustc, LLVM z `codegen-units=16` | 4,8 s | 2,4 s |
+| `sowa test`, nocny rustc, Cranelift | 1,35 s | 0,88 s |
+| `sowa test`, nocny rustc, Cranelift z `codegen-units=16` | 1,25 s | 0,80 s |
+| `sowa test` bez zmian w kodzie (kompilacja pominięta) | 0,04 s | 0,01 s |
 
-Przy codziennej pracy wygrywa Bun. Rust opłaca się dopiero przy długich testach. Przy 10 000 przypadków na property w fakturownia_web Bun potrzebował 3,48 s, a Rust 1,97 s bez kompilacji. Ten pomiar zrobiono jeszcze przed typami w kompilacji, gdy każda wartość w Ruście była dynamicznym `V`, a nowego nie było.
+Domyślny jest Rust, bo tylko on daje szybki program i to on dostaje nowe funkcje. Pętla „zmiana → test” trwa w nim jednak 3–6 s zamiast 0,08 s w Bunie. Skracają ją Cranelift i `codegen-units=16` (niżej), a gdy liczy się każda sekunda, `--bun` nadal działa. Przy długich testach Rust wygrywa także w pętli. Przy 10 000 przypadków na property w fakturownia_web Bun potrzebował 3,48 s, a Rust 1,97 s bez kompilacji. Ten pomiar zrobiono jeszcze przed typami w kompilacji, gdy każda wartość w Ruście była dynamicznym `V`, a nowego nie było.
 
 ## Ustawienia rustc i Cranelift
 
@@ -77,8 +77,8 @@ Tych dróg nie mierzono. Oceny pochodzą z opisów samych projektów.
 
 Poniższe zmiany dotyczą kompilatora, a nie języka:
 
-1. **`sowa test --rust` z `codegen-units=16`.** Kompilacja jest o 15–20% krótsza, a test nie odczuje 1–2% wolniejszego programu. `build` i `run` zostają z `codegen-units=1`.
-2. **Cranelift w `sowa test --rust`, gdy jest dostępny.** Na przykład opcja `--fast` albo automatyczne sprawdzenie, czy rustc ma komponent Cranelift. Pętla spada do ok. 1 s. Bez nocnego rustc wszystko działa jak dziś.
+1. **`sowa test` z `codegen-units=16`.** Kompilacja jest o 15–20% krótsza, a test nie odczuje 1–2% wolniejszego programu. `build` i `run` zostają z `codegen-units=1`.
+2. **Cranelift w `sowa test`, gdy jest dostępny.** Na przykład opcja `--fast` albo automatyczne sprawdzenie, czy rustc ma komponent Cranelift. Pętla spada do ok. 1 s. Bez nocnego rustc wszystko działa jak dziś.
 3. **Pomiar WebAssembly.** Najmniejszy nakład, bo obecny kod w Ruście prawdopodobnie skompiluje się do `wasm32-wasip1` prawie bez zmian. Pomiar pokaże, ile kosztuje piaskownica.
 4. **Backend C na później.** Jeśli ma powstać jedna droga zamiast Buna i Rusta, najmocniejszym kandydatem jest C z tcc w pracy i clang na wydanie. To największa z tych zmian, więc najpierw warto zrobić punkty 2 i 3.
 
@@ -98,7 +98,7 @@ printf '#!/bin/sh\nRUSTUP_HOME=%s/home exec %s/cargo/bin/rustc "$@" -Zcodegen-ba
 chmod +x $D/rustc-cl
 
 rm -f examples/fakturownia_web/.sowa/test_rs
-time SOWA_RUSTC=$D/rustc-cl compiler/target/release/sowa test --rust examples/fakturownia_web
+time SOWA_RUSTC=$D/rustc-cl compiler/target/release/sowa test examples/fakturownia_web
 ```
 
 Przy kilku flagach `-C` rustc bierze ostatnią. Nakładka może więc nadpisać ustawienia Sowy, np. dopisać `-C codegen-units=16`.

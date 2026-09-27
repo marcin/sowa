@@ -2077,14 +2077,16 @@ fn spec_rs(project: &Project, section: &str, fakes: &[String]) -> String {
             _ => get("seed"),
         };
         items.push(format!(
-            "({}, Spec {{ ty: {}, url: {}, now: {}, fake: {}, seed: {}, seed_env: {} }})",
+            "({}, Spec {{ ty: {}, url: {}, now: {}, fake: {}, seed: {}, seed_env: {}, listen: {}, token_env: {} }})",
             q(&e.key),
             q(&get("type").unwrap_or_default()),
             opt(get("url")),
             opt(get("now")),
             fake,
             opt(seed),
-            opt(get("seed_env"))
+            opt(get("seed_env")),
+            opt(get("listen")),
+            opt(get("token_env"))
         ));
     }
     format!("fn spec() -> Vec<(&'static str, Spec)> {{\n    vec![{}]\n}}\n", items.join(", "))

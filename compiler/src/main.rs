@@ -1,8 +1,9 @@
-// sowa check | build [--rust] | run [--fake NAZWA] [--rust] | test [--rust]  [--panic-abort] [KATALOG]
+// sowa check | build | run [--fake NAZWA] | test  [--bun] [--panic-abort] [KATALOG]
 //
-// Kompilator czyta projekt (sowa.toml, src/, impl/, docs/), sprawdza go i tłumaczy na jeden
-// plik JavaScript w <projekt>/.sowa/, który uruchamia Bun. Z --rust zamiast tego tłumaczy
-// program albo testy na Rusta i kompiluje je rustc do pliku wykonywalnego.
+// Kompilator czyta projekt (sowa.toml, src/, impl/, docs/), sprawdza go, tłumaczy program albo
+// testy na Rusta i kompiluje je rustc do pliku wykonywalnego w <projekt>/.sowa/. Z --bun zamiast
+// tego zapisuje jeden plik JavaScript, który uruchamia Bun. Backend Bun jest tylko do testów
+// i porównań: działa, ale nowe funkcje trafiają najpierw do Rusta.
 
 mod ast;
 mod check;
@@ -23,13 +24,15 @@ const USAGE: &str = "użycie: sowa <polecenie> [KATALOG]
 
 polecenia:
   check                 sprawdza projekt: typy, sygnatury, uprawnienia, dokumentację
-  build [--rust]        sprawdza i zapisuje program w .sowa/app.js (z --rust: .sowa/app_rs)
+  build                 sprawdza i kompiluje program do .sowa/app_rs (z --bun: .sowa/app.js)
   run [--fake ZASÓB]    buduje i uruchamia program; --fake podmienia zasób na ten z [resources.test]
-  test [--rust]         uruchamia przykłady, property i bloki sowa z docs/
+  test                  uruchamia przykłady, property i bloki sowa z docs/
 
---rust kompiluje do Rusta (rustc) zamiast do JS dla Buna.
---panic-abort (z --rust) przy panice kończy program od razu, bez sprzątania. Program jest ok. 2%
-  szybszy i ok. 10% mniejszy. Przy serwerze panika w jednym żądaniu zatrzymałaby cały serwer.
+Program i testy kompilują się do Rusta (rustc).
+--bun kompiluje do JS dla Buna: testy ruszają od razu, bez rustc, ale program jest wolniejszy.
+  To backend testowy, na razie bez nowych funkcji.
+--panic-abort przy panice kończy program od razu, bez sprzątania. Program jest ok. 2% szybszy
+  i ok. 10% mniejszy. Przy serwerze panika w jednym żądaniu zatrzymałaby cały serwer.
 
 KATALOG to katalog projektu albo dowolny katalog pod nim (domyślnie bieżący).";
 
@@ -40,7 +43,7 @@ fn main() -> ExitCode {
         return ExitCode::from(2);
     };
     let mut fakes = vec![];
-    let mut rust = false;
+    let mut rust = true;
     let mut panic_abort = false;
     let mut dir = None;
     let mut i = 1;
@@ -52,7 +55,9 @@ fn main() -> ExitCode {
                 continue;
             }
             a if a.starts_with("--fake=") => fakes.push(a["--fake=".len()..].to_string()),
+            // --rust to dawna nazwa domyślnego backendu.
             "--rust" => rust = true,
+            "--bun" => rust = false,
             "--panic-abort" => panic_abort = true,
             a if a.starts_with('-') => {
                 eprintln!("nieznana opcja {}\n\n{}", a, USAGE);
@@ -79,7 +84,7 @@ fn main() -> ExitCode {
         return ExitCode::from(2);
     }
     if panic_abort && !rust {
-        eprintln!("--panic-abort działa tylko z --rust");
+        eprintln!("--panic-abort nie działa z --bun");
         return ExitCode::from(2);
     }
     match run(&cmd, &dir, &fakes, rust, panic_abort) {

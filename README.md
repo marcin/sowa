@@ -90,14 +90,14 @@ Z samej sygnatury widać, że funkcja łączy się z bankiem, zapisuje do bazy i
 - [docs/gramatyka.md](docs/gramatyka.md): gramatyka na jedną stronę: wcięcia, deklaracje, instrukcje i pierwszeństwo operatorów.
 - [docs/przemyslenia.md](docs/przemyslenia.md): skąd te decyzje, odrzucone warianty, otwarte pytania, podobne projekty.
 - [docs/porownanie.md](docs/porownanie.md): tabele porównawcze z popularnymi językami i z językami ery AI.
-- [docs/kompilacja.md](docs/kompilacja.md): dwie drogi kompilacji (JS dla Buna i Rust), ich czasy, Cranelift i inne możliwe cele.
+- [docs/kompilacja.md](docs/kompilacja.md): dwie drogi kompilacji (Rust i testowo JS dla Buna), ich czasy, Cranelift i inne możliwe cele.
 - [docs/ocena.md](docs/ocena.md): szczera ocena, mocne i słabe strony, następny krok.
 - [examples/](examples/): krótkie przykłady składni.
 - [editors/vscode/](editors/vscode/): kolorowanie składni w VS Code.
 
 ## Szybkość
 
-Program w Sowie kompiluje się do JavaScriptu (Bun) albo do Rusta (`sowa build --rust`). Backend Rust zna typy w kompilacji. Wartość czytaną ostatni raz przenosi zamiast ją klonować, więc `map` i `with` zmieniają listę i rekord w miejscu, jak w Koka, Lean i Roc.
+Program w Sowie kompiluje się do Rusta, a do testów i porównań także do JavaScriptu dla Buna (`--bun`). Backend Rust zna typy w kompilacji. Wartość czytaną ostatni raz przenosi zamiast ją klonować, więc `map` i `with` zmieniają listę i rekord w miejscu, jak w Koka, Lean i Roc.
 
 [examples/ttfx_decrypt](examples/ttfx_decrypt/) robi dokładnie tę samą pracę co ttfx, czyli Rust pisany ręcznie. Wejście to 60 wierszy tekstu, a wynik 1664 klatki, razem 44 MB wyjścia (macOS, Apple Silicon, mediana z 5 uruchomień):
 
@@ -113,4 +113,4 @@ Na wejściu 4 razy większym Sowa → Rust jest ok. 12% wolniejsza od ttfx. Szcz
 
 ## Status
 
-Na razie to głównie projekt na papierze: specyfikacja i przykłady. [compiler/](compiler/) to kompilator do JavaScriptu (Bun) i do Rusta: `sowa check`, `sowa test` i `sowa run` działają na [examples/fakturownia_web](examples/fakturownia_web/), [examples/ttfx_decrypt](examples/ttfx_decrypt/) i [examples/ttfx_decrypt_fast](examples/ttfx_decrypt_fast/), bez solvera i bez `sowa review`. Następny krok to `sowa check` dla uprawnień, specyfikacji i dokumentacji oraz `sowa review` z solverem, sprawdzony na [examples/invoices](examples/invoices/) ([plan](docs/ocena.md#następny-krok)). Uwagi i krytyka mile widziane.
+Na razie to głównie projekt na papierze: specyfikacja i przykłady. [compiler/](compiler/) to kompilator do Rusta (testowo także do JavaScriptu dla Buna): `sowa check`, `sowa test` i `sowa run` działają na [examples/fakturownia_web](examples/fakturownia_web/), [examples/ttfx_decrypt](examples/ttfx_decrypt/) i [examples/ttfx_decrypt_fast](examples/ttfx_decrypt_fast/), bez solvera i bez `sowa review`. Następny krok to `sowa check` dla uprawnień, specyfikacji i dokumentacji oraz `sowa review` z solverem, sprawdzony na [examples/invoices](examples/invoices/) ([plan](docs/ocena.md#następny-krok)). Uwagi i krytyka mile widziane.

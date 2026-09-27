@@ -1,7 +1,8 @@
-// Runtime Sowy w Ruście dla `sowa test --rust` i `sowa run --rust`. To nie jest moduł kompilatora: codegen_rs.rs
+// Runtime Sowy w Ruście dla `sowa test`, `sowa build` i `sowa run`. To nie jest moduł kompilatora: codegen_rs.rs
 // dokleja ten plik na początek programu, a rustc kompiluje całość do jednego pliku wykonywalnego.
 // Zachowanie jest takie samo jak w runtime.js: te same wartości, typy w runtime, JSON, formularze,
-// baza (SQLite z systemu przez FFI, bez zależności) i ten sam generator liczb losowych w property.
+// baza (SQLite z systemu przez FFI), serwer HTTP na std::net, Http przez systemowy libcurl
+// i ten sam generator liczb losowych w property. Bez zależności z crates.io.
 //
 // Wartości: Int to i64 w zakresie ±(2⁵³-1) jak w JS, Money to i128 ze skalą 10²⁰ (jak Dec w JS),
 // rekord i wariant to nazwa i pola w kolejności z definicji typu.
@@ -1921,7 +1922,9 @@ pub struct DbShared {
 pub enum Cap {
     Db(Rc<DbShared>, u32),
     Clock(Option<V>),
-    Http(Option<fn(V) -> R>),
+    // Atrapa z [resources.test] albo prawdziwy serwer: adres i nazwa zmiennej z tokenem.
+    Http { fake: Option<fn(V) -> R>, url: &'static str, token_env: Option<&'static str> },
+    Server(&'static str),
     Random(RefCell<Xoshiro>),
     Terminal,
 }
@@ -1930,7 +1933,8 @@ impl Cap {
         match self {
             Cap::Db(..) => "Db",
             Cap::Clock(_) => "Clock",
-            Cap::Http(_) => "Http",
+            Cap::Http { .. } => "Http",
+            Cap::Server(_) => "Server",
             Cap::Random(_) => "Random",
             Cap::Terminal => "Terminal",
         }
@@ -2141,6 +2145,8 @@ pub struct Spec {
     pub fake: Option<fn(V) -> R>,
     pub seed: Option<&'static str>,
     pub seed_env: Option<&'static str>,
+    pub listen: Option<&'static str>,
+    pub token_env: Option<&'static str>,
 }
 
 fn mkres(sp: &Spec) -> R {
@@ -2154,10 +2160,11 @@ fn mkres(sp: &Spec) -> R {
             Some(t) => Some(parse_dt(t)?),
             None => None,
         })))),
-        "Http" => match sp.fake {
-            Some(f) => Ok(V::Cap(Rc::new(Cap::Http(Some(f))))),
-            None => terr("Http: backend Rust obsługuje w testach tylko atrapę (fake)"),
+        "Http" => match (sp.fake, sp.url) {
+            (None, None) => terr("Http: brak url ani fake w sowa.toml"),
+            (fake, url) => Ok(V::Cap(Rc::new(Cap::Http { fake, url: url.unwrap_or(""), token_env: sp.token_env }))),
         },
+        "Server" => Ok(V::Cap(Rc::new(Cap::Server(sp.listen.unwrap_or("127.0.0.1:8080"))))),
         "Random" => {
             let text = sp.seed.map(String::from).or_else(|| sp.seed_env.and_then(|k| std::env::var(k).ok()));
             let seed = match text {
@@ -2172,6 +2179,337 @@ fn mkres(sp: &Spec) -> R {
         "Terminal" => Ok(V::Cap(Rc::new(Cap::Terminal))),
         t => terr(format!("zasób {} nie jest obsługiwany w backendzie Rust", t)),
     }
+}
+
+// ---------- Server: HTTP/1.1 na std::net ----------
+//
+// Jedno żądanie na połączenie (Connection: close). Każde połączenie czyta i pisze własny wątek, więc
+// wolny klient nie wstrzymuje innych. Program woła tylko wątek główny, po kolei: wartości Sowy (Rc)
+// i połączenie SQLite są jednowątkowe, a w runtime.js Bun też woła handler w jednym wątku.
+// Bez TLS, HTTP/2 i Transfer-Encoding: chunked w żądaniu. HTTPS robi reverse proxy przed aplikacją.
+
+const HTTP_MAX_HEAD: usize = 16 << 10;
+const HTTP_MAX_BODY: usize = 1 << 20;
+const HTTP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+// Wariant Response → kod HTTP, jak $STATUS w runtime.js.
+fn http_status(v: &str) -> Option<u16> {
+    Some(match v {
+        "Ok" => 200,
+        "Redirect" => 303,
+        "BadRequest" => 400,
+        "NotFound" => 404,
+        "BadGateway" => 502,
+        _ => return None,
+    })
+}
+
+fn http_reason(code: u16) -> &'static str {
+    match code {
+        100 => "Continue",
+        200 => "OK",
+        303 => "See Other",
+        400 => "Bad Request",
+        404 => "Not Found",
+        405 => "Method Not Allowed",
+        411 => "Length Required",
+        413 => "Content Too Large",
+        431 => "Request Header Fields Too Large",
+        502 => "Bad Gateway",
+        _ => "Internal Server Error",
+    }
+}
+
+struct HttpReq {
+    method: String,
+    path: String,
+    body: String,
+}
+
+// Czyta jedno żądanie. Err(kod) to odpowiedź bez wołania programu, Err(0) to zerwane połączenie.
+fn http_read(c: &mut std::net::TcpStream, req: &mut HttpReq) -> Result<(), u16> {
+    use std::io::{Read, Write};
+    let mut buf = vec![0u8; 0];
+    let mut chunk = [0u8; 8192];
+    let head_end = loop {
+        if let Some(i) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+            break i;
+        }
+        if buf.len() > HTTP_MAX_HEAD {
+            return Err(431);
+        }
+        match c.read(&mut chunk) {
+            Ok(0) | Err(_) => return Err(0),
+            Ok(n) => buf.extend_from_slice(&chunk[..n]),
+        }
+    };
+    let head = std::str::from_utf8(&buf[..head_end]).map_err(|_| 400u16)?;
+    let mut lines = head.split("\r\n");
+    let mut first = lines.next().unwrap_or("").split(' ');
+    req.method = first.next().unwrap_or("").to_string();
+    let target = first.next().unwrap_or("");
+    req.path = target.split(['?', '#']).next().unwrap_or("").to_string();
+    if !req.path.starts_with('/') || !first.next().is_some_and(|v| v.starts_with("HTTP/1.")) {
+        return Err(400);
+    }
+    let (mut len, mut expect) = (0usize, false);
+    for l in lines {
+        let Some((k, v)) = l.split_once(':') else { return Err(400) };
+        let v = v.trim();
+        if k.eq_ignore_ascii_case("content-length") {
+            len = v.parse().map_err(|_| 400u16)?;
+        } else if k.eq_ignore_ascii_case("transfer-encoding") {
+            return Err(411);
+        } else if k.eq_ignore_ascii_case("expect") && v.eq_ignore_ascii_case("100-continue") {
+            expect = true;
+        }
+    }
+    if len > HTTP_MAX_BODY {
+        return Err(413);
+    }
+    let mut body = buf.split_off(head_end + 4);
+    if expect && body.len() < len {
+        let _ = c.write_all(b"HTTP/1.1 100 Continue\r\n\r\n");
+    }
+    while body.len() < len {
+        match c.read(&mut chunk) {
+            Ok(0) | Err(_) => return Err(0),
+            Ok(n) => body.extend_from_slice(&chunk[..n]),
+        }
+    }
+    body.truncate(len);
+    req.body = String::from_utf8(body).map_err(|_| 400u16)?;
+    Ok(())
+}
+
+fn http_write(c: &mut std::net::TcpStream, code: u16, ctype: &str, location: Option<&str>, body: &str, head_only: bool) {
+    use std::io::Write;
+    let mut out = format!("HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n", code, http_reason(code), ctype, body.len());
+    if let Some(l) = location {
+        let _ = write!(out, "Location: {}\r\n", l);
+    }
+    out.push_str("\r\n");
+    if !head_only {
+        out.push_str(body);
+    }
+    let _ = c.write_all(out.as_bytes());
+    let _ = c.flush();
+}
+
+// Odpowiedź programu: kod, Location przy Redirect i treść.
+fn http_answer(handler: &V, req_type: &'static str, req: &HttpReq) -> HttpReply {
+    let method = match req.method.as_str() {
+        "GET" | "HEAD" => "Get",
+        "POST" => "Post",
+        "PUT" => "Put",
+        "PATCH" => "Patch",
+        "DELETE" => "Delete",
+        _ => return (405, None, String::new()),
+    };
+    let body = if method == "Get" { "" } else { req.body.as_str() };
+    let res = mk(req_type, vec![("method", vsing(method)), ("path", s(&req.path)), ("body", s(body))]).and_then(|q| apply(handler, q));
+    let fail = || (500, None, "Błąd programu.".to_string());
+    match res {
+        Ok(V::Var(o)) if http_status(o.n).is_some() => {
+            let code = http_status(o.n).unwrap();
+            if o.n == "Redirect" {
+                return (code, o.get("to").map(disp), String::new());
+            }
+            let text = match o.get("body") {
+                Some(V::Html(h)) => h.to_string(),
+                Some(v) => disp(v),
+                None => String::new(),
+            };
+            (code, None, text)
+        }
+        Ok(v) => {
+            eprintln!("[sowa] nieznana odpowiedź: {}", show(&v));
+            fail()
+        }
+        Err(e) => {
+            let m = explain(&e);
+            eprintln!("[sowa] {}", if m.starts_with("błąd") { m } else { format!("błąd programu: {}", m) });
+            fail()
+        }
+    }
+}
+
+type HttpReply = (u16, Option<String>, String);
+
+fn serve(listen: &str, handler: &V) -> R {
+    use std::sync::mpsc;
+    let l = match std::net::TcpListener::bind(listen) {
+        Ok(l) => l,
+        Err(e) => return terr(format!("Server: nie da się słuchać na {}: {}", listen, e)),
+    };
+    let host = listen.rsplit_once(':').map(|(h, _)| h).unwrap_or("");
+    let port = l.local_addr().map(|a| a.port()).unwrap_or(0);
+    println!("Sowa: serwer na http://{}:{}", if host == "0.0.0.0" || host.is_empty() { "localhost" } else { host }, port);
+    // Program z własnym rekordem Request dostaje go zamiast wbudowanego HttpRequest.
+    let own = TYPES.with(|m| m.borrow().get("Request").is_some_and(|t| matches!(**t, Ty::Rec(..))));
+    let req_type = if own { "Request" } else { "HttpRequest" };
+    let (tx, rx) = mpsc::channel::<(HttpReq, mpsc::Sender<HttpReply>)>();
+    std::thread::spawn(move || {
+        for conn in l.incoming() {
+            let Ok(mut c) = conn else { continue };
+            let tx = tx.clone();
+            std::thread::spawn(move || {
+                let _ = c.set_read_timeout(Some(HTTP_TIMEOUT));
+                let _ = c.set_write_timeout(Some(HTTP_TIMEOUT));
+                let t0 = std::time::Instant::now();
+                let mut req = HttpReq { method: String::new(), path: String::new(), body: String::new() };
+                let (code, location, body) = match http_read(&mut c, &mut req) {
+                    Err(0) => return,
+                    Err(code) => (code, None, String::new()),
+                    Ok(()) => {
+                        let (rtx, rrx) = mpsc::channel();
+                        let (method, path) = (req.method.clone(), req.path.clone());
+                        if tx.send((req, rtx)).is_err() {
+                            return;
+                        }
+                        req = HttpReq { method, path, body: String::new() };
+                        rrx.recv().unwrap_or((500, None, "Błąd programu.".into()))
+                    }
+                };
+                let ctype = if code == 500 { "text/plain; charset=utf-8" } else { "text/html; charset=utf-8" };
+                http_write(&mut c, code, ctype, location.as_deref(), &body, req.method == "HEAD");
+                println!("{} {} → {} ({:.1} ms)", req.method, req.path, code, t0.elapsed().as_secs_f64() * 1000.0);
+            });
+        }
+    });
+    // Panika (błąd w runtime albo w kompilatorze) kończy tylko to żądanie kodem 500, chyba że
+    // program zbudowano z --panic-abort.
+    for (req, reply) in rx {
+        let ans = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| http_answer(handler, req_type, &req)));
+        let _ = reply.send(ans.unwrap_or_else(|_| (500, None, "Błąd programu.".into())));
+    }
+    Ok(V::Unit)
+}
+
+// ---------- Http: klient przez libcurl ----------
+//
+// std nie ma TLS, więc zapytania idą przez systemowy libcurl. Runtime ładuje go przez dlopen dopiero
+// przy pierwszym zapytaniu: program bez Http nie potrzebuje libcurl ani przy kompilacji, ani przy
+// uruchomieniu. Błąd połączenia to HttpError, a każdy kod HTTP to HttpResponse, jak fetch w runtime.js.
+
+type CurlSetopt = unsafe extern "C" fn(*mut u8, c_int, ...) -> c_int;
+struct Curl {
+    init: unsafe extern "C" fn() -> *mut u8,
+    setopt: CurlSetopt,
+    perform: unsafe extern "C" fn(*mut u8) -> c_int,
+    getinfo: unsafe extern "C" fn(*mut u8, c_int, ...) -> c_int,
+    cleanup: unsafe extern "C" fn(*mut u8),
+    strerror: unsafe extern "C" fn(c_int) -> *const c_char,
+    slist_append: unsafe extern "C" fn(*mut u8, *const c_char) -> *mut u8,
+    slist_free_all: unsafe extern "C" fn(*mut u8),
+}
+
+unsafe extern "C" {
+    fn dlopen(file: *const c_char, mode: c_int) -> *mut u8;
+    fn dlsym(handle: *mut u8, name: *const c_char) -> *mut u8;
+}
+
+// Stałe z curl/curl.h.
+const CURLOPT_WRITEDATA: c_int = 10001;
+const CURLOPT_URL: c_int = 10002;
+const CURLOPT_POSTFIELDS: c_int = 10015;
+const CURLOPT_HTTPHEADER: c_int = 10023;
+const CURLOPT_WRITEFUNCTION: c_int = 20011;
+const CURLOPT_POST: c_int = 47;
+const CURLOPT_POSTFIELDSIZE: c_int = 60;
+const CURLOPT_NOSIGNAL: c_int = 99;
+const CURLOPT_TIMEOUT_MS: c_int = 155;
+const CURLINFO_RESPONSE_CODE: c_int = 0x200000 + 2;
+
+fn curl() -> Result<&'static Curl, &'static str> {
+    static LIB: std::sync::OnceLock<Result<Curl, &'static str>> = std::sync::OnceLock::new();
+    LIB.get_or_init(|| unsafe {
+        let mut h = std::ptr::null_mut();
+        for name in [c"libcurl.4.dylib", c"libcurl.so.4", c"libcurl.so"] {
+            h = dlopen(name.as_ptr(), 2);
+            if !h.is_null() {
+                break;
+            }
+        }
+        if h.is_null() {
+            return Err("nie znaleziono biblioteki libcurl");
+        }
+        let sym = |n: &CStr| {
+            let p = dlsym(h, n.as_ptr());
+            if p.is_null() { Err("libcurl bez potrzebnych funkcji") } else { Ok(p) }
+        };
+        Ok(Curl {
+            init: std::mem::transmute(sym(c"curl_easy_init")?),
+            setopt: std::mem::transmute(sym(c"curl_easy_setopt")?),
+            perform: std::mem::transmute(sym(c"curl_easy_perform")?),
+            getinfo: std::mem::transmute(sym(c"curl_easy_getinfo")?),
+            cleanup: std::mem::transmute(sym(c"curl_easy_cleanup")?),
+            strerror: std::mem::transmute(sym(c"curl_easy_strerror")?),
+            slist_append: std::mem::transmute(sym(c"curl_slist_append")?),
+            slist_free_all: std::mem::transmute(sym(c"curl_slist_free_all")?),
+        })
+    })
+    .as_ref()
+    .map_err(|e| *e)
+}
+
+extern "C" fn curl_write(data: *const u8, size: usize, n: usize, out: *mut u8) -> usize {
+    let out = unsafe { &mut *(out as *mut Vec<u8>) };
+    out.extend_from_slice(unsafe { std::slice::from_raw_parts(data, size * n) });
+    size * n
+}
+
+fn http_send(url: &str, token_env: Option<&str>, method: &str, path: &str, body: &str) -> R {
+    let full = format!("{}{}", url.trim_end_matches('/'), path);
+    let fail = |why: &str| {
+        eprintln!("[sowa] {}: {}", full, why);
+        Ok(vsing("HttpError"))
+    };
+    let lib = match curl() {
+        Ok(l) => l,
+        Err(e) => return fail(e),
+    };
+    let (Ok(c_url), Ok(c_body)) = (CString::new(full.as_str()), CString::new(body)) else { return fail("bajt zerowy w adresie albo treści") };
+    let mut headers = vec![CString::new("Content-Type: application/json").unwrap()];
+    if let Some(t) = token_env.and_then(|k| std::env::var(k).ok()).filter(|t| !t.is_empty()) {
+        match CString::new(format!("Authorization: Bearer {}", t)) {
+            Ok(h) => headers.push(h),
+            Err(_) => return fail("bajt zerowy w tokenie"),
+        }
+    }
+    let mut out: Vec<u8> = vec![];
+    let mut code: c_long = 0;
+    let rc = unsafe {
+        let h = (lib.init)();
+        if h.is_null() {
+            return fail("curl_easy_init nie zadziałał");
+        }
+        let mut list = std::ptr::null_mut();
+        for x in &headers {
+            list = (lib.slist_append)(list, x.as_ptr());
+        }
+        (lib.setopt)(h, CURLOPT_URL, c_url.as_ptr());
+        (lib.setopt)(h, CURLOPT_NOSIGNAL, 1 as c_long);
+        (lib.setopt)(h, CURLOPT_TIMEOUT_MS, 10000 as c_long);
+        (lib.setopt)(h, CURLOPT_HTTPHEADER, list);
+        if method == "Post" {
+            (lib.setopt)(h, CURLOPT_POST, 1 as c_long);
+            (lib.setopt)(h, CURLOPT_POSTFIELDSIZE, body.len() as c_long);
+            (lib.setopt)(h, CURLOPT_POSTFIELDS, c_body.as_ptr());
+        }
+        (lib.setopt)(h, CURLOPT_WRITEFUNCTION, curl_write as extern "C" fn(*const u8, usize, usize, *mut u8) -> usize);
+        (lib.setopt)(h, CURLOPT_WRITEDATA, &mut out as *mut Vec<u8> as *mut u8);
+        let rc = (lib.perform)(h);
+        (lib.getinfo)(h, CURLINFO_RESPONSE_CODE, &mut code as *mut c_long);
+        (lib.cleanup)(h);
+        (lib.slist_free_all)(list);
+        rc
+    };
+    if rc != 0 {
+        let why = unsafe { CStr::from_ptr((lib.strerror)(rc)) }.to_string_lossy().into_owned();
+        return fail(&why);
+    }
+    mk("HttpResponse", vec![("status", V::Int(code as i64)), ("body", s(&String::from_utf8_lossy(&out)))])
 }
 
 // Metody list i uprawnień.
@@ -2296,9 +2634,16 @@ pub fn call(o: V, name: &str, pos: Vec<V>, named: Vec<(&'static str, V)>, targs:
                 out_flush();
                 std::process::exit(code as i32)
             }
-            (Cap::Http(Some(fake)), "post" | "get") => {
+            (Cap::Http { fake, url, token_env }, "post" | "get") => {
                 let (method, path, body) = if name == "post" { ("Post", arg(0, "path"), arg(1, "body")) } else { ("Get", arg(0, "path"), s("")) };
-                fake(mk("HttpRequest", vec![("method", vsing(method)), ("path", path), ("body", body)])?)
+                match fake {
+                    Some(fake) => fake(mk("HttpRequest", vec![("method", vsing(method)), ("path", path), ("body", body)])?),
+                    None => http_send(url, *token_env, method, &st(&path, "http.path")?, &st(&body, "http.body")?),
+                }
+            }
+            (Cap::Server(listen), "serve") => {
+                out_flush();
+                serve(listen, &arg(0, "handler"))
             }
             _ => nomethod(),
         },
