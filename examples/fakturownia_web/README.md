@@ -8,7 +8,7 @@ Reguły biznesowe są uproszczone. To ilustracja języka i procesu, a nie wzór 
 
 ## Uruchomienie
 
-Potrzebny jest Rust (cargo) i [Bun](https://bun.sh). Z katalogu głównego repozytorium:
+Potrzebny jest Rust (cargo). Z katalogu głównego repozytorium:
 
 ```
 cargo build --manifest-path compiler/Cargo.toml
@@ -17,7 +17,7 @@ compiler/target/debug/sowa test examples/fakturownia_web
 compiler/target/debug/sowa run --fake ksef examples/fakturownia_web
 ```
 
-Aplikacja działa pod http://localhost:8080, a faktury zapisuje w `fakturownia.db` obok `sowa.toml`. `--fake ksef` podmienia ksef.pl na atrapę z `[resources.test]`. Bez tej flagi wysyłka kończy się komunikatem „KSeF nie odpowiada”, bo adres z `[resources]` to domena `.example`, która nie istnieje. Więcej w [compiler/README.md](../../compiler/README.md).
+Aplikacja działa pod http://localhost:8080, a faktury zapisuje w `fakturownia.db` obok `sowa.toml`. `--fake ksef` podmienia ksef.pl na atrapę z `[resources.test]`. Bez tej flagi wysyłka kończy się komunikatem „KSeF nie odpowiada”, bo adres z `[resources]` to domena `.example`, która nie istnieje. Pierwsze `sowa test` i `sowa run` kompilują program przez rustc, co trwa kilka sekund. Z `--bun` program uruchamia [Bun](https://bun.sh), bez kompilacji. Więcej w [compiler/README.md](../../compiler/README.md).
 
 ## Jak powstaje i kto co czyta
 

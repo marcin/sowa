@@ -1,6 +1,8 @@
 # Kompilator Sowy (prototyp)
 
-Najprostszy kompilator, który wystarcza, żeby sprawdzić, przetestować i uruchomić [examples/fakturownia_web](../examples/fakturownia_web/). Napisany w Ruście bez zależności. Tłumaczy cały projekt na jeden plik JavaScript, który uruchamia [Bun](https://bun.sh). Bazę daje wbudowany w Buna `bun:sqlite`, więc program też nie ma zależności.
+Najprostszy kompilator, który wystarcza, żeby sprawdzić, przetestować i uruchomić [examples/fakturownia_web](../examples/fakturownia_web/). Napisany w Ruście bez zależności. Tłumaczy cały projekt na Rusta i kompiluje go rustc do jednego pliku wykonywalnego. Program też nie ma zależności z crates.io: bazę daje systemowy `libsqlite3`, a zapytania HTTP systemowy libcurl.
+
+Drugi backend tłumaczy projekt na jeden plik JavaScript, który uruchamia [Bun](https://bun.sh) (`--bun`, baza z `bun:sqlite`). Jest tylko do testów i porównań: działa i przechodzi te same testy, ale nowe funkcje trafiają najpierw do Rusta.
 
 Nie ma solvera, `sowa review` ani mutacji. Warunki w typach kompilator sprawdza w runtime, a nie dowodzi.
 
@@ -10,17 +12,18 @@ Nie ma solvera, `sowa review` ani mutacji. Warunki w typach kompilator sprawdza 
 cargo build --manifest-path compiler/Cargo.toml
 sowa check [KATALOG]               # sprawdza projekt
 sowa test [KATALOG]                # przykłady, property (po 100 przypadków) i bloki sowa z docs/
-sowa test --rust [KATALOG]         # to samo, ale testy są kompilowane do Rusta
-sowa build [KATALOG]               # zapisuje program w KATALOG/.sowa/app.js
+sowa build [KATALOG]               # kompiluje program do KATALOG/.sowa/app_rs
 sowa run [--fake ZASÓB] [KATALOG]  # buduje i uruchamia
-sowa build --rust / run --rust     # program w Ruście: KATALOG/.sowa/app_rs
+sowa test --bun / build --bun / run --bun   # to samo przez Buna: KATALOG/.sowa/app.js
 ```
 
-`KATALOG` to katalog z `sowa.toml` albo dowolny katalog pod nim. `--fake ksef` bierze opis zasobu `ksef` z `[resources.test]`, czyli atrapę. Bun jest szukany w `SOWA_BUN`, potem w `PATH`, potem w `~/.bun/bin/bun`.
+`KATALOG` to katalog z `sowa.toml` albo dowolny katalog pod nim. `--fake ksef` bierze opis zasobu `ksef` z `[resources.test]`, czyli atrapę. `rustc` jest szukany w `SOWA_RUSTC`, potem w `PATH`, potem w `~/.cargo/bin/rustc`, a Bun w `SOWA_BUN`, potem w `PATH`, potem w `~/.bun/bin/bun`. `--rust` to dawna nazwa domyślnego backendu i nadal działa.
 
-`sowa test --rust` tłumaczy program i testy na jeden plik `.sowa/test_rs.rs`, kompiluje go `rustc -O -C codegen-units=1` do `.sowa/test_rs` i uruchamia. Wynik i komunikaty są takie same jak z Buna, łącznie z wylosowanymi przypadkami property. Kompilacja jest pomijana, gdy kod się nie zmienił. SQLite pochodzi z systemowej biblioteki `libsqlite3`. `rustc` jest szukany w `SOWA_RUSTC`, potem w `PATH`, potem w `~/.cargo/bin/rustc`. `sowa build --rust` i `sowa run --rust` kompilują tak samo `main` do `.sowa/app_rs`. Na razie działają w nim zasoby `Db`, `Clock`, `Random` i `Terminal`. Nie ma serwera ani prawdziwego `Http`, tylko atrapa.
+`sowa test` tłumaczy program i testy na jeden plik `.sowa/test_rs.rs`, kompiluje go `rustc -O -C codegen-units=1` do `.sowa/test_rs` i uruchamia. Kompilacja trwa 3–6 s i jest pomijana, gdy kod się nie zmienił. `sowa test --bun` daje wynik w ok. 0,1 s. Wynik i komunikaty obu backendów są takie same, łącznie z wylosowanymi przypadkami property. `sowa build` i `sowa run` kompilują tak samo `main` do `.sowa/app_rs`. Działają w nim wszystkie zasoby: `Db`, `Clock`, `Random`, `Terminal`, `Server` i `Http`.
 
-`--panic-abort` (tylko z `--rust`) dodaje `-C panic=abort`. Program jest wtedy ok. 2% szybszy, a plik wykonywalny ok. 10% mniejszy, bo znika kod rozwijania stosu. Błędy Sowy idą przez `Result` i działają tak samo. Inaczej zachowuje się tylko panika, czyli błąd w kompilatorze albo w runtime: proces kończy się od razu z kodem 134 zamiast 101 i bez sprzątania. Opcja nie jest domyślna, bo po dodaniu serwera w Ruście panika w obsłudze jednego żądania zatrzymałaby z nią cały serwer, a bez niej można ją złapać i odpowiedzieć 500 tylko temu żądaniu.
+**Server** to HTTP/1.1 na `std::net`, bez crate'ów. Jedno żądanie idzie na połączenie (`Connection: close`). Nie ma TLS, HTTP/2 ani `Transfer-Encoding: chunked` w żądaniu (to ostatnie dostaje 411). Nagłówki mają limit 16 KB, a treść 1 MB (413). Odczyt i zapis mają po 5 s. Każde połączenie czyta i pisze własny wątek, więc wolny klient nie wstrzymuje innych. Program woła tylko wątek główny, po kolei, jak w Bunie. HTTPS daje reverse proxy przed aplikacją (Caddy, nginx). **Http** wysyła zapytania przez systemowy libcurl (`libcurl.4.dylib` na macOS, `libcurl.so.4` na Linuksie). Runtime ładuje go przez `dlopen` przy pierwszym zapytaniu, więc program bez `Http` go nie potrzebuje. Bez libcurl zapytanie kończy się `HttpError` i wpisem w logu.
+
+`--panic-abort` (nie działa z `--bun`) dodaje `-C panic=abort`. Program jest wtedy ok. 2% szybszy, a plik wykonywalny ok. 10% mniejszy, bo znika kod rozwijania stosu. Błędy Sowy idą przez `Result` i działają tak samo. Inaczej zachowuje się tylko panika, czyli błąd w kompilatorze albo w runtime: proces kończy się od razu z kodem 134 zamiast 101 i bez sprzątania. Opcja nie jest domyślna, bo z nią panika w obsłudze jednego żądania zatrzymałaby cały serwer. Bez niej serwer łapie panikę i odpowiada 500 tylko temu żądaniu.
 
 Czasy kompilacji i działania w różnych ustawieniach, w tym z Cranelift, są w [docs/kompilacja.md](../docs/kompilacja.md).
 
@@ -33,11 +36,11 @@ Czasy kompilacji i działania w różnych ustawieniach, w tym z Cranelift, są w
 | `src/project.rs`, `src/toml.rs` | `sowa.toml`, pliki z `src/` i `impl/`, nagłówki i bloki z `docs/`, CODEOWNERS, `.gitattributes` |
 | `src/env.rs` | nazwy całego programu: typy, warianty, funkcje; wbudowane typy i funkcje |
 | `src/check.rs` | reguły projektu (niżej) |
-| `src/codegen.rs` | JavaScript: typy jako opisy w runtime, funkcje jako `async function`, testy |
+| `src/codegen.rs` | JavaScript dla `--bun`: typy jako opisy w runtime, funkcje jako `async function`, testy |
 | `src/runtime.js` | runtime doklejany na początek programu: wartości, typy, JSON, formularze, baza, HTTP, serwer, testy |
-| `src/codegen_rs.rs` | Rust dla `sowa test --rust` i `sowa build --rust`: typy znane w kompilacji jako typy Rusta (`i64`, `Rc<str>`, `Rc<Vec<T>>`, `struct`), reszta jako dynamiczne `V`; błędy przez `?`, lambdy jako domknięcia |
+| `src/codegen_rs.rs` | Rust dla `sowa test`, `build` i `run`: typy znane w kompilacji jako typy Rusta (`i64`, `Rc<str>`, `Rc<Vec<T>>`, `struct`), reszta jako dynamiczne `V`; błędy przez `?`, lambdy jako domknięcia |
 | `src/moves.rs` | analiza dla backendu Rust: który odczyt zmiennej jest ostatni i może przenieść wartość zamiast ją klonować |
-| `src/runtime.rs` | runtime dla Rusta, doklejany na początek `test_rs.rs` (nie jest modułem crate'a): te same wartości, typy, JSON, baza przez FFI do SQLite, generator property i raport |
+| `src/runtime.rs` | runtime dla Rusta, doklejany na początek `test_rs.rs` i `app_rs.rs` (nie jest modułem crate'a): te same wartości, typy, JSON, baza przez FFI do SQLite, serwer na `std::net`, Http przez libcurl, generator property i raport |
 
 ## Co sprawdza `sowa check`
 

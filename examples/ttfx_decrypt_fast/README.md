@@ -14,24 +14,24 @@ Wynik w Ruście na wejściu z 60 wierszy: 41 ms, gdy ttfx liczy 55 ms, a ttfx_de
 
 ## Uruchomienie
 
-Potrzebny jest Rust (cargo) i [Bun](https://bun.sh). Z katalogu głównego repozytorium:
+Potrzebny jest Rust (cargo), a do animacji i do `--bun` także [Bun](https://bun.sh). Z katalogu głównego repozytorium:
 
 ```sh
 cargo build --manifest-path compiler/Cargo.toml
 compiler/target/debug/sowa check examples/ttfx_decrypt_fast
 compiler/target/debug/sowa test examples/ttfx_decrypt_fast
-compiler/target/debug/sowa test --rust examples/ttfx_decrypt_fast
+compiler/target/debug/sowa test --bun examples/ttfx_decrypt_fast
 ```
 
 Animacja w terminalu:
 
 ```sh
 printf 'Witaj w Sowie\nttfx decrypt\n' \
-  | SEED=1 compiler/target/debug/sowa run --rust examples/ttfx_decrypt_fast \
+  | SEED=1 compiler/target/debug/sowa run examples/ttfx_decrypt_fast \
   | bun examples/ttfx_decrypt_fast/play.js
 ```
 
-Bez `--rust` program działa w Bunie, a wynik jest ten sam. `SEED` wybiera przebieg: bez tej zmiennej ziarno pochodzi z zegara. Tekst można też podać z pliku, np. `< README.md`.
+Z `--bun` program działa w Bunie, a wynik jest ten sam. `SEED` wybiera przebieg: bez tej zmiennej ziarno pochodzi z zegara. Tekst można też podać z pliku, np. `< README.md`.
 
 Program wypisuje wszystkie klatki od razu, bez pauz, tak jak ttfx z `--frame-rate 0`. `play.js` dzieli wyjście na klatki i pokazuje je w 60 klatkach/s. Tempo podaje argument, np. `play.js 30`. Skrypt jest w JS, bo Sowa nie ma jeszcze pauzy (zob. [Propozycje](#propozycje-do-decyzji)).
 
