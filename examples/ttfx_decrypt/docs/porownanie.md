@@ -40,7 +40,7 @@ Pomiary zrobiono na macOS (Apple Silicon). Wyjście szło do `/dev/null`, bez od
 
 Przy ttfx i Sowa → Rust CPU jest równe czasowi z dokładnością do 2 ms.
 
-Obecnie `sowa build --rust` dodaje do `-O` flagi `-C codegen-units=1 -C panic=abort`. Z nimi duże wejście trwa ok. 50 ms zamiast 53 ms, a wejście z 180 wierszy ok. 3% krócej. Tabela pochodzi z pomiarów z samym `-O`.
+Tabela pochodzi z pomiarów z samym `-O`. Obecnie `sowa build --rust` dodaje też `-C codegen-units=1`, co skraca czas o ok. 1–2%. Z opcją `--panic-abort` (zob. [compiler/README.md](../../../compiler/README.md)) duże wejście trwa ok. 50 ms zamiast 52 ms, a wejście z 180 wierszy ok. 221 ms zamiast 228 ms.
 
 Względem ttfx:
 
