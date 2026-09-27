@@ -1,0 +1,11 @@
+fn vat_percent(rate: VatRate) -> Percent
+  match rate
+    Vat23  => return 23
+    Vat8   => return 8
+    Vat5   => return 5
+    Vat0   => return 0
+    Exempt => return 0
+
+fn read_nip(input: String) -> Nip | InvalidNip
+  digits = remove(remove(input, "-"), " ")
+  return digits as Nip or return InvalidNip

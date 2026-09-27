@@ -1,19 +1,12 @@
-desc Numeracja faktur: FV/2026/0001, FV/2026/0002, ...
-why decyzje/002-numeracja-bez-luk.md
+// Ten plik człowiek czyta: jest w [review] read w sowa.toml i pod CODEOWNERS.
+// Numeracja bez luk to wymóg prawny, a jej poprawności nie wyrazi sam typ.
 
-type InvoiceNumber = String(starts_with(α, "FV/"))
-  desc Numer faktury w formacie FV/rok/kolejny numer, np. FV/2026/0042.
 fn format_number(year: Int, seq: Int(α > 0)) -> InvoiceNumber
-  example format_number(2026, 42) == "FV/2026/0042"
-
   return "FV/" + to_string(year) + "/" + pad_left(to_string(seq), 4, "0")
 
 fn save_with_next_number(buyer: Buyer, lines: List<Line>(len(α) > 0), discount: Percent,
                          issued_on: Date) -> Invoice | NumberingFailed
   effects Db.read, Db.write
-
-  desc Nadaje kolejny numer i zapisuje fakturę w jednej transakcji.
-  why decyzje/002-numeracja-bez-luk.md
 
   // Składnia transakcji to otwarte pytanie. Tu transaction to zwykła funkcja z lambdą:
   // jeśli coś się nie uda, wszystkie zapisy są wycofywane i wynik to DbError.
@@ -36,5 +29,9 @@ fn save_with_next_number(buyer: Buyer, lines: List<Line>(len(α) > 0), discount:
 fn last_invoice_seq(year: Int) -> Int(α >= 0)
   effects Db.read
 
+  // ciało pominięte w przykładzie
+
 fn save_invoice(invoice: Invoice)
   effects Db.write
+
+  // ciało pominięte w przykładzie

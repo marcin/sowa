@@ -1,0 +1,30 @@
+# Szkic formatu. Generuje `sowa review`, nie edytuj ręcznie. Plik należy do właściciela w CODEOWNERS.
+# przez: doc / why = odnośnik z kodu do .md, {} = odnośnik {Symbol} z .md do kodu.
+# opis                                     symbol                 przez  hash    kto                    przejrzane
+uzytkownik/faktury.md#faktury              Percent                {}     3fa81c  reviewer@intum.com     2026-09-27
+uzytkownik/faktury.md#wystawianie-faktury  issue_invoice          doc    a41f09  reviewer@intum.com     2026-09-27
+uzytkownik/faktury.md#wystawianie-faktury  Invoice                doc    c7d013  reviewer@intum.com     2026-09-27
+uzytkownik/faktury.md#wystawianie-faktury  Nip                    {}     b812d5  reviewer@intum.com     2026-09-27
+uzytkownik/faktury.md#wystawianie-faktury  Percent                {}     3fa81c  reviewer@intum.com     2026-09-27
+uzytkownik/faktury.md#wystawianie-faktury  InvoiceNumber          {}     61ce07  reviewer@intum.com     2026-09-27
+uzytkownik/faktury.md#stawki-vat           VatRate                doc    5c2e71  reviewer@intum.com     2026-09-27
+uzytkownik/faktury.md#rabat                line_net               doc    e90b3d  reviewer@intum.com     2026-09-27
+uzytkownik/faktury.md#rabat                Percent                {}     3fa81c  reviewer@intum.com     2026-09-27
+uzytkownik/faktury.md#sumy-i-zaokrąglenia  totals                 doc    17d4c8  reviewer@intum.com     2026-09-27
+uzytkownik/faktury.md#płatność             mark_paid              doc    b3a6f2  reviewer@intum.com     2026-09-27
+uzytkownik/faktury.md#wysyłka-e-mailem     send_invoice           doc    08ce5a  reviewer@intum.com     2026-09-27
+zalozenia.md#kwoty                         src/types.sowa         why    2d90a4  reviewer@intum.com     2026-09-27
+zalozenia.md#kwoty                         src/invoice.sowa       why    9b41e7  reviewer@intum.com     2026-09-27
+zalozenia.md#nip                           Nip                    why    b812d5  reviewer@intum.com     2026-09-27
+zalozenia.md#nip                           read_nip               {}     f0932a  reviewer@intum.com     2026-09-27
+zalozenia.md#obliczenia-i-efekty           src/invoice.sowa       why    9b41e7  reviewer@intum.com     2026-09-27
+zalozenia.md#obliczenia-i-efekty           src/issuing.sowa       why    e3c850  reviewer@intum.com     2026-09-27
+zalozenia.md#błędy                         src/issuing.sowa       why    e3c850  reviewer@intum.com     2026-09-27
+zalozenia.md#błędy                         src/payments.sowa      why    71af2d  reviewer@intum.com     2026-09-27
+decyzje/001-vat-od-sumy-w-stawce.md        totals                 why    17d4c8  reviewer@intum.com     2026-09-27
+decyzje/002-numeracja-bez-luk.md           src/numbering.sowa     why    4c07b9  reviewer@intum.com     2026-09-27
+decyzje/002-numeracja-bez-luk.md           issue_invoice          why    a41f09  reviewer@intum.com     2026-09-27
+decyzje/002-numeracja-bez-luk.md           save_with_next_number  why    6f1b2e  reviewer@intum.com     2026-09-27
+decyzje/003-wysylka-osobno.md              src/sending.sowa       why    d58e13  reviewer@intum.com     2026-09-27
+decyzje/003-wysylka-osobno.md              issue_invoice          why    a41f09  reviewer@intum.com     2026-09-27
+decyzje/003-wysylka-osobno.md              send_invoice           why    08ce5a  reviewer@intum.com     2026-09-27

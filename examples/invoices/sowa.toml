@@ -1,0 +1,70 @@
+# Katalog główny projektu Sowa. Ścieżki po doc i why liczą się od katalogu docs.
+[project]
+name = "invoices"
+src  = "src"    # specyfikacja: typy, sygnatury, efekty, opisy, przykłady
+impl = "impl"   # ciała funkcji; w trybie spec nie wymagają przeglądu
+docs = "docs"
+
+# Limity dokumentacji przy kodzie. Po przekroczeniu `sowa check` prosi
+# o przeniesienie tekstu lub przykładów do .md. Bez tej sekcji obowiązują
+# wartości domyślne języka (te same co tutaj).
+[limits]
+desc_lines    = 3   # linii w desc; dłuższy opis przenieś do .md i wskaż przez doc
+examples      = 3   # przykładów na funkcję; resztę przenieś do bloków sowa w .md
+example_lines = 5   # linii w jednym przykładzie
+
+# Efekty w projekcie. Sprawdza je `sowa check`.
+# Uzasadnienie w docs/zalozenia.md#obliczenia-i-efekty.
+[effects]
+# Efekty, które w ogóle mogą wystąpić w projekcie. Każdy inny to błąd.
+allowed = ["Db.read", "Db.write", "Clock", "Net"]
+
+# Gdzie wolno ich używać. Plik, którego tu nie ma, musi być czysty.
+# Nowy plik z efektami wymaga więc dopisania go tutaj.
+# Plik w src/ oznacza cały moduł, razem z jego plikiem w impl/.
+[effects.files]
+"src/numbering.sowa" = ["Db.read", "Db.write"]
+"src/issuing.sowa"   = ["Db.read", "Db.write", "Clock"]
+"src/payments.sowa"  = ["Db.write"]
+"src/sending.sowa"   = ["Net(mail)"]
+
+# Zasoby dla efektów. Net(mail) pozwala łączyć się tylko z tym adresem,
+# a sowa run przekazuje go do runtime jako jedyne dozwolone połączenie.
+# Uzasadnienie w docs/tryby.md#efekty-z-zasobem w repozytorium Sowy.
+[effects.resources]
+mail = "smtp.firma.pl:587"
+
+# Wymagania dla funkcji z danym efektem.
+#   why     = true    funkcja musi mieć why: dlaczego potrzebuje tego efektu
+#   approve = true    sowa review pokazuje taką funkcję na górze jako niebezpieczną;
+#                     w plikach, które człowiek czyta (read), zatwierdzenie
+#                     trafia do effects.lock i obejmuje sygnaturę i efekty
+#   approve = "body"  jak wyżej, ale także po każdej zmianie ciała funkcji
+[effects.rules.Net]
+why     = true
+approve = true
+
+[effects.rules."Db.write"]
+approve = true
+
+# Co czyta i zatwierdza człowiek. Zob. docs/tryby.md w repozytorium Sowy.
+#   mode = "spec"  człowiek zatwierdza src/, docs/ i ten plik, a kodu w impl/
+#                  nie czyta; pilnują go kompilator, testy i uprawnienia w runtime
+#   mode = "code"  bez impl/, człowiek czyta całe funkcje
+#   read           pliki z impl/, które człowiek i tak czyta
+# Egzekwuje to CODEOWNERS (.github/CODEOWNERS), a sowa check sprawdza, czy
+# CODEOWNERS obejmuje src/, docs/ i pliki z read. Przy pracy bez PR można
+# włączyć podpisywanie wpisów kluczem SSH (approvers, sign).
+[review]
+mode = "spec"
+read = ["impl/numbering.sowa"]
+# approvers = ["reviewer@intum.com"]
+# sign      = true
+
+# Moduły, w których zatwierdza się mapę efektów: gdzie jaki efekt powstaje,
+# także w funkcjach pomocniczych z impl/. Człowiek nie czyta kodu, ale widzi,
+# w których funkcjach modułu dzieje się coś poza liczeniem. Nowy efekt albo
+# nowe miejsce, w którym efekt powstaje, czeka na zatwierdzenie.
+# Mapę pokazuje: sowa effects <plik>
+[review.files]
+"src/issuing.sowa" = "effects"

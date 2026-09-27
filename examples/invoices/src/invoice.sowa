@@ -37,8 +37,6 @@ fn line_net(line: Line, discount: Percent) -> Money
 
   example line_net(Line(name: "Usługa", quantity: 2, unit_net: 50, vat: Vat23), 10) == 90
 
-  return round(line.unit_net * line.quantity * (100 - discount) / 100, 2)
-
 fn totals(lines: List<Line>(len(α) > 0), discount: Percent) -> Totals
   desc Sumy netto, VAT i brutto dla całej faktury.
   doc uzytkownik/faktury.md#sumy-i-zaokrąglenia
@@ -46,11 +44,3 @@ fn totals(lines: List<Line>(len(α) > 0), discount: Percent) -> Totals
 
   example totals([Line(name: "Usługa", quantity: 1, unit_net: 100, vat: Vat23)], 0)
     == Totals(net: 100, vat: 23, gross: 123)
-
-  var net = 0
-  var vat = 0
-  for rate in distinct(lines.map(l => l.vat))
-    rate_net = sum(lines.filter(l => l.vat == rate).map(l => line_net(l, discount)))
-    net = net + rate_net
-    vat = vat + round(rate_net * vat_percent(rate) / 100, 2)
-  return Totals(net: net, vat: vat, gross: net + vat)

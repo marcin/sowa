@@ -1,6 +1,8 @@
 # Zatwierdzanie: agent pisze, człowiek zatwierdza
 
-Zasada nadrzędna Sowy brzmi: agent pisze, człowiek czyta i zatwierdza. Ten dokument opisuje, jak „zatwierdza” działa w praktyce. Składnia i reguły są w [zalozenia.md](zalozenia.md#zatwierdzanie-sowa-review), a tu jest całość w jednym miejscu, z uzasadnieniem.
+Zasada nadrzędna Sowy brzmi: agent pisze, człowiek zatwierdza. Ten dokument opisuje, jak „zatwierdza” działa w praktyce. Składnia i reguły są w [zalozenia.md](zalozenia.md#zatwierdzanie-sowa-review), a tu jest całość w jednym miejscu, z uzasadnieniem.
+
+To, co tu opisane (`approve`, `effects.lock`, mapa efektów modułu), służy do czytania kodu: w trybie `code` i w plikach, które w trybie `spec` człowiek i tak czyta (`[review] read`). W domyślnym trybie `spec` zatwierdzenie to przede wszystkim review zmian w `src/` i `docs/`, a `approve` tylko przesuwa zmianę na górę listy w `sowa review`. Zob. [tryby.md](tryby.md).
 
 ## Problem
 
@@ -15,6 +17,7 @@ Tylko rzeczy, których kompilator nie sprawdzi sam i które zmieniają znaczenie
 | Co | Dlaczego człowiek | Gdzie zapisane |
 |---|---|---|
 | funkcja dostaje efekt oznaczony `approve` (np. `Net`, `Db.write`) | kompilator wie, że funkcja łączy się z siecią, ale nie wie, czy powinna | `effects.lock` |
+| w module z `[review.files]` pojawia się nowy efekt albo nowe miejsce, w którym efekt powstaje | człowiek chce znać mapę efektów modułu, ale nie przeglądać funkcji po kolei | `effects.lock` |
 | zmienia się sygnatura, warunek albo efekt funkcji opisanej w `.md` | tekstu nie da się sprawdzić, da się tylko wykryć, że mógł się zdezaktualizować | `docs.lock` |
 | zmienia się polityka projektu (`[effects]`, `[limits]`, `[review]`) | to reguły, które pilnują całej reszty | `sowa.toml` |
 
@@ -62,6 +65,53 @@ sowa.toml   @marcin
 - **Polityka też jest chroniona.** Agent nie poluzuje `allowed` w `sowa.toml`, żeby ominąć regułę, bo ten plik też wymaga zgody właściciela.
 - **Agent wie, czego nie robić.** Reguła w AGENTS.md mówi, że agent nie uruchamia `sowa review`, nie edytuje plików `*.lock` ani polityki w `sowa.toml`, a oczekujące zatwierdzenia przekazuje człowiekowi. Reguła nie jest zabezpieczeniem, zabezpieczeniem jest CODEOWNERS. Dzięki regule uczciwy agent nie marnuje jednak czasu recenzenta.
 
+## Zatwierdzanie modułu zamiast funkcji
+
+`approve` na efekcie działa na poziomie funkcji: każda nowa funkcja z `Db.write` czeka osobno. W dużym module to dużo zatwierdzeń, a człowiek często chce wiedzieć tylko jedno: gdzie w module dzieje się coś poza liczeniem.
+
+Do tego służy mapa efektów modułu. `sowa effects` pokazuje ją zawsze:
+
+```
+$ sowa effects src/issuing.sowa
+
+src/issuing.sowa   dozwolone: Db.read, Db.write, Clock (sowa.toml)
+
+  Clock     issue_invoice   przez current_date()
+  Db.read   issue_invoice   przez save_with_next_number (src/numbering.sowa)
+  Db.write  issue_invoice   przez save_with_next_number (src/numbering.sowa)
+
+  czyste: read_buyer
+```
+
+Moduł wpisany w `[review.files]` w `sowa.toml` wymaga zatwierdzenia tej mapy:
+
+```toml
+[review.files]
+"src/issuing.sowa" = "effects"
+```
+
+`sowa review` pokazuje wtedy diff mapy, a nie funkcje:
+
+```
+[1/1] src/numbering.sowa  (mapa efektów)
+
+    Db.read   last_invoice_seq
+    Db.write  save_invoice
+  + Db.write  reset_numbering        (nowa funkcja)
+
+  Zatwierdzić mapę efektów? [t]ak / [n]ie / [f]unkcje / [p]omiń
+```
+
+Treść funkcji jest pod `[f]`, ale nie trzeba do niej zaglądać. W `effects.lock` zapisuje się jeden wiersz na efekt w module:
+
+```
+src/numbering.sowa   Db.write   save_invoice, reset_numbering   91c3d7  reviewer@intum.com     2026-09-27
+```
+
+Ponownego zatwierdzenia wymaga tylko nowy efekt albo nowe miejsce, w którym efekt powstaje. Zmiana w ciele funkcji, nowa funkcja czysta albo nowa funkcja, która tylko woła `save_invoice`, nic nie zmieniają. Mapę widać też w PR: diff pliku `effects.lock` to dokładnie te wiersze.
+
+To lżejsze niż `approve` na częstym efekcie. Zamiast zatwierdzać każdą funkcję z `Db.write` osobno, człowiek zatwierdza jedną listę na moduł.
+
 ## Kiedy CODEOWNERS nie wystarcza
 
 CODEOWNERS chroni tylko wtedy, gdy agent i człowiek to **dwie różne tożsamości**. W praktyce agent często działa na koncie człowieka: ten sam `gh auth`, ten sam token, ta sama tożsamość w gicie. Wtedy:
@@ -83,7 +133,7 @@ Kto pracuje sam z agentem, może włączyć podpisywanie wpisów kluczem SSH, ta
 
 ```toml
 [review]
-approvers = ["recenzent@example.com"]
+approvers = ["reviewer@intum.com"]
 sign      = true
 ```
 
@@ -113,4 +163,6 @@ Nie znaleźliśmy języka, w którym kompilator sam wskazuje, **które zmiany w 
 - Format podpisu (SSH jak w gicie?) i jak dodawać albo odwoływać osoby z `approvers`.
 - Co z konfliktami w plikach `.lock`, gdy dwa PR zatwierdzają różne rzeczy? Może jeden wiersz na symbol i sortowanie, żeby merge był prosty.
 - Czy `sowa review` ma pokazywać diff ciała funkcji od ostatniego zatwierdzenia, nawet przy `approve = true`?
-- Zmęczenie zatwierdzaniem: jeśli `approve` stoi na częstym efekcie (np. `Db.write`), ludzie zaczną zatwierdzać bez czytania. Może `sowa check` powinien ostrzegać, gdy zatwierdzeń jest za dużo, albo zalecać `approve` tylko dla rzadkich efektów, jak `Net`?
+- Zmęczenie zatwierdzaniem: jeśli `approve` stoi na częstym efekcie (np. `Db.write`), ludzie zaczną zatwierdzać bez czytania. Może `sowa check` powinien ostrzegać, gdy zatwierdzeń jest za dużo, albo zalecać `approve` tylko dla rzadkich efektów, jak `Net`, a dla reszty mapę modułu z `[review.files]`?
+- Mapa modułu: czy funkcje, które tylko przekazują efekt dalej (po `←`), też powinny wchodzić do hasha? Teraz nie wchodzą, żeby mapa się nie zmieniała przy każdej nowej funkcji, ale wtedy nie widać, że efekt ma nowe wejście.
+- Mapa modułu: czy `[review.files]` powinno przyjmować wzorce ścieżek (`"src/db/*.sowa"`)?

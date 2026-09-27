@@ -1,0 +1,21 @@
+desc Numeracja faktur: FV/2026/0001, FV/2026/0002, ...
+why decyzje/002-numeracja-bez-luk.md
+
+type InvoiceNumber = String(starts_with(α, "FV/"))
+  desc Numer faktury w formacie FV/rok/kolejny numer, np. FV/2026/0042.
+
+fn format_number(year: Int, seq: Int(α > 0)) -> InvoiceNumber
+  example format_number(2026, 42) == "FV/2026/0042"
+
+fn save_with_next_number(buyer: Buyer, lines: List<Line>(len(α) > 0), discount: Percent,
+                         issued_on: Date) -> Invoice | NumberingFailed
+  effects Db.read, Db.write
+
+  desc Nadaje kolejny numer i zapisuje fakturę w jednej transakcji.
+  why decyzje/002-numeracja-bez-luk.md
+
+fn last_invoice_seq(year: Int) -> Int(α >= 0)
+  effects Db.read
+
+fn save_invoice(invoice: Invoice)
+  effects Db.write

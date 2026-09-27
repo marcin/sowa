@@ -1,7 +1,0 @@
-# Zatwierdzenia i polityka projektu wymagają zgody właściciela w PR.
-# W prawdziwym projekcie ten plik leży w katalogu głównym repozytorium
-# (GitHub nie czyta CODEOWNERS z podkatalogów), tu jest tylko przykładem.
-# Działa tylko wtedy, gdy agent ma osobne konto bez prawa zatwierdzania,
-# a ochrona main nie ma wyjątku dla adminów. Zob. docs/zatwierdzanie.md.
-sowa.toml   @marcin
-*.lock      @marcin

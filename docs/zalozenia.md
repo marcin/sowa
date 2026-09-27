@@ -2,11 +2,11 @@
 
 ## Zasada nadrzędna
 
-Agent pisze, człowiek czyta i zatwierdza. Z tego wynika reszta:
+Agent pisze, człowiek zatwierdza. Domyślnie człowiek zatwierdza granice i specyfikację: typy, sygnatury, efekty, opisy i przykłady. Kodu nie czyta: ciała funkcji leżą osobno, w `impl/`, i pilnują ich kompilator, testy i uprawnienia w runtime. Kod można też czytać, w wybranych modułach albo w całym projekcie (zob. [Tryby](#tryby-spec-i-code)). Z tego wynika reszta:
 
 1. **Jak najmniej wiedzy do przeczytania.** Kod ma być zrozumiały dla kogoś, kto zna tylko podstawy: operatory, `if`, `return`, wywołania funkcji. Każda rzecz, którą trzeba sprawdzić w dokumentacji, to koszt.
 2. **Dłuższe i oczywiste wygrywa z krótkim i sprytnym.** Agentowi nie przeszkadza pisanie więcej, a recenzentowi przeszkadza zgadywanie.
-3. **Rygorystyczne granice, swobodne wnętrze.** Sygnatury, warunki na typach, efekty i błędy są jawne i sprawdzane. To one są recenzowane. Ciało funkcji może być żmudne, bo kompilator pilnuje zgodności z sygnaturą.
+3. **Rygorystyczne granice, swobodne wnętrze.** Sygnatury, warunki na typach, efekty i błędy są jawne i sprawdzane. To one są recenzowane, a w trybie `spec` tylko one. Ciało funkcji może być żmudne, bo kompilator pilnuje zgodności z sygnaturą.
 4. **Jeden sposób na jedną rzecz.** Mała, stabilna semantyka, bez makr i bez „magii” (monkey-patching, `method_missing`, otwarte klasy, ukryte hooki, globalny stan).
 5. **Znajoma składnia, nowa semantyka.** Składnia ma przypominać to, co ludzie i modele już znają (Rust, TypeScript, Ruby). Nowość jest w tym, co kompilator sprawdza.
 6. **Sprawdzanie w kompilacji.** Tam, gdzie się da, błąd ma wyjść przed uruchomieniem, a nie na produkcji.
@@ -143,7 +143,7 @@ approve = true
 | `allowed` | efekty, które mogą wystąpić w projekcie; każdy inny to błąd |
 | `files` | w których plikach wolno użyć których efektów; plik, którego nie ma na liście, musi być czysty |
 | `rules.<efekt>.why` | funkcja z tym efektem musi mieć `why` |
-| `rules.<efekt>.approve = true` | funkcja, która dostaje ten efekt, czeka na zatwierdzenie przez człowieka (zob. niżej); zatwierdzenie obejmuje sygnaturę i efekty |
+| `rules.<efekt>.approve = true` | funkcja, która dostaje ten efekt, czeka na zatwierdzenie przez człowieka (zob. niżej); zatwierdzenie obejmuje sygnaturę i efekty; w trybie `spec` taka zmiana stoi na górze listy w `sowa review` |
 | `rules.<efekt>.approve = "body"` | jak wyżej, ale ponowne zatwierdzenie także po każdej zmianie ciała funkcji |
 
 ```
@@ -191,7 +191,7 @@ $ sowa review
 Po zatwierdzeniu w `effects.lock` pojawia się wiersz z hashem, osobą (z `git config user.email`) i datą:
 
 ```
-notify_buyer  src/sending.sowa  Net  7e21c4  recenzent@example.com  2026-09-27
+notify_buyer  src/sending.sowa  Net  7e21c4  reviewer@intum.com  2026-09-27
 ```
 
 **3. Zatwierdzenie egzekwuje review kodu.** Agent też ma terminal, więc może uruchomić `sowa review` albo dopisać wiersz do pliku `.lock`. Sam plik niczego nie gwarantuje. Gwarancję daje to, że pliki `*.lock` i `sowa.toml` należą do właściciela w CODEOWNERS:
@@ -211,11 +211,109 @@ Bez PR albo gdy agent działa na koncie człowieka, można włączyć podpisywan
 
 ```toml
 [review]
-approvers = ["recenzent@example.com"]
+approvers = ["reviewer@intum.com"]
 sign      = true
 ```
 
 `sowa review` podpisuje wtedy każdy wpis, a `sowa check --ci` sprawdza podpis na liście `approvers`. Klucz musi wymagać potwierdzenia przy każdym użyciu (klucz sprzętowy, `ssh-add -c`), bo odblokowanego klucza w `ssh-agent` agent też może użyć. To opcja, a nie domyślne zachowanie, bo wymaga konfiguracji.
+
+#### Mapa efektów modułu: `sowa effects`
+
+Czasem nie chcesz zatwierdzać funkcji po kolei, tylko wiedzieć, gdzie w module powstają jakie efekty. `sowa effects` pokazuje to bez wchodzenia do funkcji. Raport jest pogrupowany po efektach, a nie po funkcjach:
+
+```
+$ sowa effects src/numbering.sowa
+
+src/numbering.sowa   dozwolone: Db.read, Db.write (sowa.toml)
+
+  Db.read   last_invoice_seq   ← save_with_next_number
+  Db.write  save_invoice       ← save_with_next_number
+
+  czyste: format_number
+```
+
+Przy efekcie stoi funkcja, w której on **powstaje**, czyli która sama wywołuje coś z tym efektem spoza modułu: z biblioteki albo z innego pliku. Po `przez` stoi wywołanie, z którego efekt przychodzi, np. `przez current_date()`, a po `←` funkcje z modułu, które ją wywołują i tylko przekazują efekt dalej. Dzięki temu lista zostaje krótka nawet w dużym module. Raport działa zawsze, bez konfiguracji, bo kompilator i tak liczy graf wywołań.
+
+Żeby mapa modułu wymagała zatwierdzenia, wpisz moduł w `[review.files]`:
+
+```toml
+[review.files]
+"src/numbering.sowa" = "effects"
+```
+
+- Zatwierdza się mapę modułu, a nie funkcje. `effects.lock` ma po jednym wierszu na efekt w module: efekt, funkcje, w których powstaje, hash, kto i kiedy.
+- Hash obejmuje tylko pary (efekt, funkcja, w której powstaje). Zmiana w ciele funkcji, nowa funkcja czysta albo nowa funkcja, która tylko przekazuje efekt, nie wymagają ponownego zatwierdzenia.
+- Nowy efekt w module albo nowe miejsce, w którym efekt powstaje, czeka na zatwierdzenie:
+
+```
+ostrzeżenie: src/numbering.sowa: zmieniła się mapa efektów i czeka na zatwierdzenie
+               + Db.write  reset_numbering
+             uruchom: sowa review
+```
+
+`[effects.files]` mówi, **jakie** efekty wolno mieć w pliku, a `[review.files]` każe zatwierdzać, **gdzie** w nim powstają. Gdy funkcja podlega też regule `approve` z `[effects.rules]`, `sowa review` pokazuje ją raz, a jedno zatwierdzenie zapisuje oba wiersze.
+
+### Tryby: `spec` i `code`
+
+Szczegóły, zagrożenia i porównanie z innymi językami: [tryby.md](tryby.md).
+
+Tryb mówi, co człowiek czyta. Ustawia się go w `sowa.toml`:
+
+```toml
+[project]
+src  = "src"
+impl = "impl"
+
+[review]
+mode = "spec"                    # domyślnie; albo "code"
+read = ["impl/numbering.sowa"]   # kod, który człowiek i tak czyta
+```
+
+| | `spec` (domyślny) | `code` |
+|---|---|---|
+| co czyta człowiek | `src/` i `docs/`: typy, sygnatury, efekty, opisy, przykłady | całe funkcje |
+| gdzie są ciała funkcji | w `impl/`, w pliku o tej samej nazwie | w `src/`, pod dokumentacją |
+| co chroni CODEOWNERS | `src/`, `docs/`, `sowa.toml`, `*.lock`, pliki z `read` | `sowa.toml`, `*.lock` |
+
+W trybie `spec` plik w `src/` to specyfikacja modułu, bez ciał funkcji. Plik w `impl/` powtarza linię `fn` i `effects`, a pod nimi ma kod:
+
+```
+// src/types.sowa
+fn read_nip(input: String) -> Nip | InvalidNip
+  desc Zamienia NIP wpisany przez użytkownika (z kreskami lub spacjami) na Nip.
+
+  example read_nip("123-456-32-18") == "1234563218"
+  example read_nip("123") == InvalidNip
+
+// impl/types.sowa
+fn read_nip(input: String) -> Nip | InvalidNip
+  digits = remove(remove(input, "-"), " ")
+  return digits as Nip or return InvalidNip
+```
+
+- Sygnatura i `effects` w `impl/` muszą być identyczne jak w `src/`. Zmiana sygnatury wymaga więc zmiany w `src/`, a ta zgody człowieka.
+- `impl/` może mieć własne funkcje pomocnicze i typy. Są prywatne: spoza modułu widać tylko `src/`.
+- `example` w `src/` to specyfikacja, a w `impl/` to własne testy agenta.
+- Wywołania bibliotek spoza Sowy mogą stać tylko w `src/`.
+- `impl/` nie ma właściciela w CODEOWNERS i jest zwinięty w PR (`impl/** linguist-generated=true` w `.gitattributes`). `sowa check` sprawdza, czy CODEOWNERS obejmuje `src/`, `docs/` i pliki z `read`.
+
+W trybie `code` nie ma `impl/`: funkcja ma ciało pod dokumentacją, jak w przykładach w tym dokumencie. Wtedy `approve`, mapa efektów modułu i `effects.lock` wskazują człowiekowi, które funkcje czytać.
+
+#### Efekty z zasobem
+
+Efekt można przypiąć do zasobu nazwanego w `sowa.toml`. Wtedy agent nie wyśle danych gdzie indziej, nawet w kodzie, którego nikt nie czyta:
+
+```
+fn send_invoice(invoice: Invoice) -> Sent | SendError
+  effects Net(mail)
+```
+
+```toml
+[effects.resources]
+mail = "smtp.firma.pl:587"
+```
+
+Funkcje sieciowe przyjmują zasób zamiast adresu: `mail_send(mail, to, subject, pdf)`. Adres jako tekst, np. `http_post("https://gdzies.com", ...)`, się nie skompiluje. `sowa run` przekazuje zasoby do runtime jako jedyne dozwolone połączenia.
 
 ### Błędy
 
@@ -296,6 +394,17 @@ fn apply_discount(total: Money, pct: Percent) -> Money
 ```
 
 Brakującą grupę się pomija, bez podwójnych pustych linii. W typie z polami opis stoi na górze, a pola pod nią, po pustej linii.
+
+Przed `fn` zawsze stoi pusta linia, żeby `desc` poprzedniej definicji nie zlewał się z sygnaturą funkcji. Typy mogą stać jeden pod drugim, także z opisem:
+
+```
+type Percent  = Int(α >= 0 && α <= 100)
+  desc Rabat procentowy, od 0 do 100 włącznie.
+type Quantity = Int(α > 0)
+  desc Liczba sztuk na pozycji.
+
+fn apply_discount(total: Money, pct: Percent) -> Money
+```
 
 `desc` na kilka linii działa tak samo jak blok po `or`: samo słowo, a pod nim tekst z wcięciem. Blok kończy się tam, gdzie kończy się wcięcie.
 

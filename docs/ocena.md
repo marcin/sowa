@@ -2,7 +2,7 @@
 
 ## Aktualizacja: po dokumentacji i zatwierdzaniu (27.09.2026)
 
-Stan: specyfikacja, 7 przykładów i przykładowy projekt [faktury](../examples/faktury/), nadal bez parsera i kompilatora.
+Stan: specyfikacja, 7 przykładów i przykładowy projekt [invoices](../examples/invoices/), nadal bez parsera i kompilatora.
 
 **W skrócie:** jest wyraźnie lepiej niż przy pierwszej ocenie, ale z innego powodu, niż zakładaliśmy na początku.
 
@@ -16,9 +16,9 @@ Stan: specyfikacja, 7 przykładów i przykładowy projekt [faktury](../examples/
 
 1. **Najlepszy pomysł może nie potrzebować nowego języka.** Politykę efektów i zatwierdzanie da się zrobić jako narzędzie do TypeScripta: adnotacje, linter importów, pliki `.lock`. Byłoby to mniej szczelne (w TS nie udowodnisz, że funkcja nie woła `fetch`), ale dla wielu zespołów wystarczające. Trzeba uczciwie odpowiedzieć, po co nowy język. Odpowiedź: efekty są w systemie typów, więc gwarancja jest pełna, a nie „prawie”. Trzeba to jednak pokazać, a nie założyć.
 2. **Wiedza do nauczenia rośnie, tylko w innym miejscu.** Kod czyta się łatwo, ale projekt ma już `sowa.toml` z czterema sekcjami, dwa pliki `.lock`, CODEOWNERS, `sowa review` i limity. Kryterium „jak najmniej wiedzy” stosowaliśmy do składni, a nie do procesu.
-3. **Zmęczenie zatwierdzaniem.** Jeśli każdy `Db.write` wymaga zgody, po tygodniu ludzie zatwierdzają bez czytania, jak banery cookies. `approve` powinno zostać dla rzadkich efektów. W fakturach wystarczyłoby na `Net`.
+3. **Zmęczenie zatwierdzaniem.** Jeśli każdy `Db.write` wymaga zgody, po tygodniu ludzie zatwierdzają bez czytania, jak banery cookies. `approve` powinno zostać dla rzadkich efektów. W projekcie invoices wystarczyłoby na `Net`.
 4. **CODEOWNERS nie chroni, gdy agent działa na koncie człowieka.** Autor PR i właściciel to wtedy ta sama osoba. Działa to tylko przy osobnym koncie dla agenta i ochronie `main` bez wyjątku dla adminów. Inaczej zostaje podpis kluczem, który wymaga potwierdzenia przy każdym użyciu. Opisane w [zatwierdzanie.md](zatwierdzanie.md#kiedy-codeowners-nie-wystarcza).
-5. **Stara słabość wróciła.** Znowu dyskutowaliśmy o powierzchni (`see`, cudzysłowy, `desc`). Otwartych pytań przybywa szybciej, niż ubywa, jest ich ponad 30. Projekt faktur używa składni spoza specyfikacji: rekordów, generyków, `with`, `transaction`. „Cały język na jednej stronie” przestaje być prawdą przy pierwszym prawdziwym programie.
+5. **Stara słabość wróciła.** Znowu dyskutowaliśmy o powierzchni (`see`, cudzysłowy, `desc`). Otwartych pytań przybywa szybciej, niż ubywa, jest ich ponad 30. Projekt invoices używa składni spoza specyfikacji: rekordów, generyków, `with`, `transaction`. „Cały język na jednej stronie” przestaje być prawdą przy pierwszym prawdziwym programie.
 
 ### Ocena
 
@@ -39,7 +39,7 @@ Zamrozić składnię i zbudować `sowa check` tylko dla tego, co wyróżnia Sow�
 4. tłumaczenie `example` i bloków `sowa` do TypeScripta i uruchamianie ich,
 5. typy z warunkami na razie tylko jako sprawdzenie `as` w runtime, solver później.
 
-Test na `examples/faktury` pokaże, czy teza działa. Najważniejsze pytanie: czy `sowa review` realnie skraca przegląd kodu z agenta. Jeśli tak, Sowa ma sens niezależnie od tego, jak skończą się typy z warunkami.
+Test na `examples/invoices` pokaże, czy teza działa. Najważniejsze pytanie: czy `sowa review` realnie skraca przegląd kodu z agenta. Jeśli tak, Sowa ma sens niezależnie od tego, jak skończą się typy z warunkami.
 
 ## Pierwsza ocena (27.09.2026)
 

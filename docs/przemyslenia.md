@@ -75,7 +75,7 @@ Ogólna lekcja: skróty w stylu Ruby'ego sprawdzają się w zwykłym kodzie, ale
 
   `desc` w SQL-u znaczy „malejąco”, ale przy funkcji trudno to pomylić. Rozważaliśmy też `summary`.
 
-  Nagłówek funkcji dzielimy pustymi liniami na cztery grupy: `effects`, opis (`desc`, `doc`, `why`), przykłady (`example`), kod. Bez odstępów linie `why` zlewały się z pierwszą linią kodu. Przykłady były początkowo w grupie opisu, ale to kod, a nie tekst: `example apply_discount(100, 20) == 80` pod `why decyzje/...` zlewało się z odnośnikami, a przy trzech przykładach grupa robiła się długa.
+  Nagłówek funkcji dzielimy pustymi liniami na cztery grupy: `effects`, opis (`desc`, `doc`, `why`), przykłady (`example`), kod. Bez odstępów linie `why` zlewały się z pierwszą linią kodu. Przykłady były początkowo w grupie opisu, ale to kod, a nie tekst: `example apply_discount(100, 20) == 80` pod `why decyzje/...` zlewało się z odnośnikami, a przy trzech przykładach grupa robiła się długa. Z tego samego powodu przed `fn` zawsze stoi pusta linia: `desc` typu zlewał się z następnym `fn`. Typy, także z opisem, mogą stać jeden pod drugim, bo krótkie definicje czyta się razem.
 
   Długość `desc` i liczbę przykładów przy kodzie ograniczają limity z `sowa.toml` (`[limits]`, z wartościami domyślnymi w języku). Po przekroczeniu `sowa check`, a nie formatter, prosi o przeniesienie do `.md`. Żeby agent nie „naprawiał” ostrzeżenia usuwaniem przykładów, `sowa check` pokazuje przy funkcji wszystkie jej testy, z kodu i z `.md`. `{Symbol}` działa też w `desc` i wiąże sekcję `.md` z symbolem w `docs.lock`.
 
@@ -100,6 +100,19 @@ Ogólna lekcja: skróty w stylu Ruby'ego sprawdzają się w zwykłym kodzie, ale
   | **`.lock` + CODEOWNERS na `*.lock` i `sowa.toml`** | **wybrane jako domyślne**: korzysta z review PR, który zespół i tak robi, a diff pliku `.lock` jest listą kontrolną dla recenzenta |
 
   Hash w `effects.lock` obejmuje sygnaturę i efekty, a nie ciało: zatwierdza się „ta funkcja może łączyć się z siecią”, a nie każdą zmianę w jej kodzie. Ostrzejszy wariant to `approve = "body"`.
+
+  Drugi poziom zatwierdzania to mapa efektów modułu (`[review.files]`, `sowa effects`): człowiek zatwierdza listę „gdzie w module powstaje jaki efekt”, a nie funkcje po kolei. Odrzuciliśmy `effects` bez wcięcia w nagłówku pliku. Byłoby widać przy czytaniu kodu, ale dublowałoby `[effects.files]` z `sowa.toml`, a tylko `sowa.toml` jest chroniony przez CODEOWNERS.
+- **Domyślnie człowiek nie czyta kodu (tryb `spec`).** Agent pisze więcej, niż człowiek przeczyta, więc „człowiek czyta i zatwierdza” kończy się zatwierdzaniem bez czytania. Uczciwiej jest powiedzieć wprost, co człowiek zatwierdza: specyfikację (typy, sygnatury, efekty, opisy, przykłady). Kod leży osobno, w `impl/`, a pilnują go kompilator, testy, których agent nie może osłabić, i uprawnienia w runtime. Czytanie kodu zostaje jako opcja: wybrane pliki (`[review] read`) albo cały projekt (`mode = "code"`). Szczegóły w [tryby.md](tryby.md).
+
+  | Wariant | Ocena |
+  |---|---|
+  | jeden plik, ciała funkcji zwinięte w edytorze i w PR | CODEOWNERS działa na plikach, a nie na ich fragmentach, więc nie da się chronić sygnatur bez chronienia ciał |
+  | osobny `spec.lock` z hashami sygnatur | więcej mechanizmu, a to samo daje CODEOWNERS na `src/` |
+  | **`src/` ze specyfikacją, `impl/` z ciałami** | **wybrane**: granica w plikach, więc działa z CODEOWNERS, `.gitattributes` i zwykłym review PR; znane z Ady (`.ads`/`.adb`) i OCamla (`.mli`/`.ml`) |
+
+  Plik w `impl/` powtarza linię `fn` i `effects`. To dublowanie, ale bez niego plik z ciałami nie dałby się czytać bez otwierania `src/` obok. Kompilator sprawdza, czy obie linie są identyczne.
+
+  Efekty dostały zasoby (`Net(mail)` i `[effects.resources]`), bo w nieczytanym kodzie samo `Net` znaczy „dowolny adres”.
 - **Ruby: składnia tak, semantyka nie.** Z Ruby'ego warto wziąć brak średników i lekkość zapisu. Nie bierzemy monkey-patchingu, `method_missing`, metaprogramowania ani DSL-i, w których nie wiadomo, skąd bierze się metoda. Tą drogą poszły już Elixir (składnia z Ruby'ego, semantyka z Erlanga) i Crystal.
 - **Jawne zamiast skrótów:**
   - `unless x` → `if not x`
@@ -190,7 +203,7 @@ Izolowane procesy z supervisorem. Stan `observable` jest odpytywalny na żywo.
 - **Wartości limitów:** czy 3 linie `desc`, 3 przykłady i 5 linii na przykład to dobre wartości domyślne? Sprawdzić na większym kodzie.
 - **`docs.lock`:** jaki ostateczny format? Zatwierdzanie opisane w [zatwierdzanie.md](zatwierdzanie.md), tam też kolejne otwarte pytania.
 - **Renderowanie `{Percent}`:** w jakim języku (polski, angielski)? Skąd brać tłumaczenia? Jak wyrenderować warunek z wywołaniem funkcji, np. `{Nip}` z `nip_checksum_ok(α)`? Może wtedy brać `desc` typu.
-- **Z przykładowego projektu [faktury](../examples/faktury/):**
+- **Z przykładowego projektu [invoices](../examples/invoices/):**
   - typy z polami: `type Line` z polami w bloku z wcięciem?
   - generyki: `List<Line>`? Jak łączą się z warunkami (`List<Line>(len(α) > 0)`)?
   - argumenty nazwane: `Line(name: "A", quantity: 1)`, czy obowiązkowe?
@@ -201,5 +214,10 @@ Izolowane procesy z supervisorem. Stan `observable` jest odpytywalny na żywo.
   - manifest projektu: `sowa.toml`, jakie pola?
   - łamanie długich sygnatur i `example` na kilka linii.
   - nagłówek pliku: hash obejmuje sygnatury całego pliku, więc ostrzeżenie o nieaktualnym opisie pojawi się przy każdej zmianie w pliku. Czy to nie za często? Może tylko zmiana efektów?
+- **Tryb `spec`** (zob. [tryby.md](tryby.md#otwarte-pytania)):
+  - zapis wywołań bibliotek spoza Sowy w `src/`, np. `extern fn`, i ich efektów,
+  - `Secret` / `Pii` dla danych wrażliwych: typ opakowujący czy etykieta na polu?
+  - zasoby dla bazy: `Db.write(invoices)`, czyli tabela jako zasób?
+  - czy `impl/` musi powtarzać sygnatury, czy wystarczy sama nazwa funkcji?
 - **Komentarze:** `//` czy `--`? (Nie `#`.)
 - **Rozszerzenie plików:** `.sowa`.

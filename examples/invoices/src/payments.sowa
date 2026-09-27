@@ -1,0 +1,15 @@
+desc Płatności.
+why zalozenia.md#błędy
+
+type PaymentError = WrongAmount | AlreadyPaid
+
+// Opłacić można tylko fakturę w statusie Issued. To warunek w typie parametru,
+// więc funkcja nie musi go sprawdzać, a wywołujący musi go udowodnić.
+
+fn mark_paid(invoice: Invoice(α.status == Issued), amount: Price) -> Invoice | PaymentError
+  effects Db.write
+
+  doc uzytkownik/faktury.md#płatność
+
+fn pay_from_bank(invoice: Invoice, amount: Price) -> Invoice | PaymentError
+  effects Db.write

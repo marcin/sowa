@@ -1,4 +1,4 @@
-# Założenia projektu faktury
+# Założenia projektu invoices
 
 Ogólne zasady, które obowiązują w wielu plikach naraz. Pliki z kodem wskazują tu przez `why` w nagłówku albo przy typie.
 
@@ -21,7 +21,7 @@ Obliczenia są czyste, a efekty siedzą w kilku wyznaczonych plikach. Dzięki te
 
 Które pliki mogą mieć jakie efekty, zapisaliśmy w `sowa.toml` w sekcji `[effects]`, więc pilnuje tego kompilator, a nie ten opis. Tu jest tylko uzasadnienie:
 
-- `Net` tylko w `src/sending.sowa`, bo wysyłka jest osobnym krokiem ([decyzja 003](decyzje/003-wysylka-osobno.md)).
+- `Net(mail)` tylko w `src/sending.sowa`, bo wysyłka jest osobnym krokiem ([decyzja 003](decyzje/003-wysylka-osobno.md)).
 - `Clock` tylko w `src/issuing.sowa`: datę odczytujemy raz, przy wystawieniu, a dalej przekazujemy ją jako zwykłą wartość.
 - Każda nowa funkcja, która zapisuje do bazy albo łączy się z siecią, wymaga zatwierdzenia przez człowieka (`approve = true`, lista w `effects.lock`). Zatwierdza się przez `sowa review`, a PR ze zmianą w `effects.lock` wymaga zgody właściciela z `.github/CODEOWNERS`.
 

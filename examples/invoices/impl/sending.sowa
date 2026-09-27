@@ -1,0 +1,12 @@
+fn render_pdf(invoice: Invoice) -> Pdf
+  // ciało pominięte w przykładzie
+
+// Funkcja pomocnicza, której nie ma w src/: prywatna, spoza modułu jej nie widać.
+fn subject(invoice: Invoice) -> String
+  return "Faktura " + invoice.number
+
+fn send_invoice(invoice: Invoice) -> Sent | SendError
+  effects Net(mail)
+
+  pdf = render_pdf(invoice)
+  return try mail_send(mail, invoice.buyer.email, subject(invoice), pdf)
