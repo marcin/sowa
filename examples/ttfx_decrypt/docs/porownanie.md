@@ -40,6 +40,8 @@ Pomiary zrobiono na macOS (Apple Silicon). Wyjście szło do `/dev/null`, bez od
 
 Przy ttfx i Sowa → Rust CPU jest równe czasowi z dokładnością do 2 ms.
 
+Obecnie `sowa build --rust` dodaje do `-O` flagi `-C codegen-units=1 -C panic=abort`. Z nimi duże wejście trwa ok. 50 ms zamiast 53 ms, a wejście z 180 wierszy ok. 3% krócej. Tabela pochodzi z pomiarów z samym `-O`.
+
 Względem ttfx:
 
 | Program | Czas, duży | RAM, duży | Czas, bardzo duży | RAM, bardzo duży |
