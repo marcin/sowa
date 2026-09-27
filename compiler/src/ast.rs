@@ -178,6 +178,11 @@ pub enum Stmt {
         body: Vec<Stmt>,
         line: usize,
     },
+    While {
+        cond: Expr,
+        body: Vec<Stmt>,
+        line: usize,
+    },
     Match {
         subjects: Vec<Expr>,
         arms: Vec<Arm>,

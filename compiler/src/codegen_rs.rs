@@ -332,8 +332,21 @@ impl<'a> Gen<'a> {
             }
         }
         writeln!(out, "fn tests() -> Vec<Test> {{\n    vec![\n        {}\n    ]\n}}\n", tests.join(",\n        ")).unwrap();
-        out.push_str(&spec_rs(project));
+        out.push_str(&spec_rs(project, "resources.test", &[]));
         out.push_str("\nfn main() {\n    init_types();\n    run_tests(tests(), spec());\n}\n\n// ---- stałe ----\n");
+        out.push_str(&self.consts);
+        out
+    }
+
+    // Program dla `sowa run --rust`: main dostaje zasoby z [resources] w kolejności parametrów.
+    pub fn main_program(&mut self, project: &Project, fakes: &[String]) -> String {
+        let mut out = String::new();
+        self.types_rs(&mut out);
+        self.fns_rs(&mut out);
+        let names = crate::check::resource_names(project, "resources");
+        let args: Vec<String> = names.iter().map(|n| format!("res(r, {})", q(n))).collect();
+        out.push_str(&spec_rs(project, "resources", fakes));
+        writeln!(out, "\nfn main() {{\n    init_types();\n    run_main(|r| f_main({}), spec());\n}}\n\n// ---- stałe ----", args.join(", ")).unwrap();
         out.push_str(&self.consts);
         out
     }
@@ -428,6 +441,12 @@ impl<'a> Gen<'a> {
                     writeln!(out, "{}}} else {{", pad).unwrap();
                     self.block(e, cx, out, ind + 1);
                 }
+                writeln!(out, "{}}}", pad).unwrap();
+            }
+            Stmt::While { cond, body, .. } => {
+                let c = self.expr(cond, cx);
+                writeln!(out, "{}while bool_({})? {{", pad, c).unwrap();
+                self.block(body, cx, out, ind + 1);
                 writeln!(out, "{}}}", pad).unwrap();
             }
             Stmt::For { var, iter, body, .. } => {
@@ -834,10 +853,16 @@ fn flatten_and<'e>(e: &'e Expr, out: &mut Vec<&'e Expr>) {
 }
 
 // Zasoby z [resources.test] jako Spec dla runtime.
-fn spec_rs(project: &Project) -> String {
-    let entries = project.toml.get("resources.test").cloned().unwrap_or_default();
+// Zasoby z sekcji; zasoby z `fakes` biorą opis z [resources.test].
+fn spec_rs(project: &Project, section: &str, fakes: &[String]) -> String {
+    let entries = project.toml.get(section).cloned().unwrap_or_default();
+    let test = project.toml.get("resources.test").cloned().unwrap_or_default();
     let mut items = vec![];
     for e in &entries {
+        let e = match test.iter().find(|t| fakes.contains(&e.key) && t.key == e.key) {
+            Some(t) => t,
+            None => e,
+        };
         let get = |k: &str| match e.value.get(k) {
             Some(toml::Value::Str(s)) => Some(s.clone()),
             _ => None,
@@ -850,13 +875,19 @@ fn spec_rs(project: &Project) -> String {
             Some(f) => format!("Some(f_{} as fn(V) -> R)", ident(&f)),
             None => "None".into(),
         };
+        let seed = match e.value.get("seed") {
+            Some(toml::Value::Int(n)) => Some(n.to_string()),
+            _ => get("seed"),
+        };
         items.push(format!(
-            "({}, Spec {{ ty: {}, url: {}, now: {}, fake: {} }})",
+            "({}, Spec {{ ty: {}, url: {}, now: {}, fake: {}, seed: {}, seed_env: {} }})",
             q(&e.key),
             q(&get("type").unwrap_or_default()),
             opt(get("url")),
             opt(get("now")),
-            fake
+            fake,
+            opt(seed),
+            opt(get("seed_env"))
         ));
     }
     format!("fn spec() -> Vec<(&'static str, Spec)> {{\n    vec![{}]\n}}\n", items.join(", "))

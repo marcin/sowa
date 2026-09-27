@@ -515,6 +515,10 @@ impl<'a> Ck<'a> {
                     self.block(e, sc, f, d);
                 }
             }
+            Stmt::While { cond, body, .. } => {
+                self.expr(cond, sc, f, d);
+                self.block(body, sc, f, d);
+            }
             Stmt::For { var, iter, body, line } => {
                 self.expr(iter, sc, f, d);
                 sc.push();
@@ -862,7 +866,7 @@ fn stmt_calls(s: &Stmt, out: &mut Vec<(String, usize)>) {
                 stmt_calls(s, out);
             }
         }
-        Stmt::For { iter, body, .. } => {
+        Stmt::While { cond: iter, body, .. } | Stmt::For { iter, body, .. } => {
             expr_calls(iter, out);
             for s in body {
                 stmt_calls(s, out);

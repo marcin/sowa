@@ -665,6 +665,20 @@ const $b = {
     return sum % 11 === Number(s[9]);
   },
   valid_email: (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s),
+  at: (xs, i) => {
+    if (!Array.isArray(xs)) throw new $TypeErr(`at działa na liście, a dostał ${$show(xs)}`);
+    if (!Number.isInteger(i) || i < 0 || i >= xs.length) throw new $TypeErr(`at: indeks ${i} poza listą o długości ${xs.length}`);
+    return xs[i];
+  },
+  join: (xs, sep) => xs.join(sep),
+  split: (s, sep) => s.split(sep),
+  chars: (s) => [...s],
+  char: (code) => {
+    if (!Number.isInteger(code) || code < 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) {
+      throw new $TypeErr(`char: ${code} nie jest kodem znaku`);
+    }
+    return String.fromCodePoint(code);
+  },
 };
 function $len_err(x) { throw new $TypeErr(`len działa na tekście i liście, a dostał ${$show(x)}`); }
 const $regexes = new Map();
@@ -839,6 +853,66 @@ function $mkserver(spec) {
   };
 }
 
+// Random: xoshiro256++ z ziarnem rozwiniętym przez SplitMix64, ten sam co w ttfx,
+// więc przy tym samym seed obie implementacje losują te same liczby.
+const $U64 = (1n << 64n) - 1n;
+function $rotl64(x, k) { return ((x << k) | (x >> (64n - k))) & $U64; }
+function $mkrandom(seed) {
+  let sm = seed === undefined ? BigInt.asUintN(64, BigInt(Date.now()) * 1000003n) : BigInt.asUintN(64, BigInt(seed));
+  const split = () => {
+    sm = (sm + 0x9e3779b97f4a7c15n) & $U64;
+    let z = sm;
+    z = ((z ^ (z >> 30n)) * 0xbf58476d1ce4e5b9n) & $U64;
+    z = ((z ^ (z >> 27n)) * 0x94d049bb133111ebn) & $U64;
+    return z ^ (z >> 31n);
+  };
+  let s0 = split(), s1 = split(), s2 = split(), s3 = split();
+  const next = () => {
+    const r = ($rotl64((s0 + s3) & $U64, 23n) + s0) & $U64;
+    const t = (s1 << 17n) & $U64;
+    s2 ^= s0; s3 ^= s1; s1 ^= s2; s0 ^= s3; s2 ^= t;
+    s3 = $rotl64(s3, 45n);
+    return r;
+  };
+  const below = (n) => {
+    const bits = Math.max(n === 1 ? 0 : (n - 1).toString(2).length, 1);
+    const shift = BigInt(64 - bits);
+    for (;;) { const r = Number(next() >> shift); if (r < n) return r; }
+  };
+  return {
+    $cap: "Random",
+    int(arg) {
+      const lo = arg(0, "min"), hi = arg(1, "max");
+      if (!Number.isInteger(lo) || !Number.isInteger(hi) || lo > hi) throw new $TypeErr(`random.int: pusty przedział ${lo}..${hi}`);
+      return lo + below(hi - lo + 1);
+    },
+    choice(arg) {
+      const xs = arg(0, "list");
+      if (!Array.isArray(xs) || xs.length === 0) throw new $TypeErr(`random.choice: pusta lista`);
+      return xs[below(xs.length)];
+    },
+  };
+}
+
+// Terminal: całe stdin naraz i stdout z buforem; $run_main opróżnia bufor na końcu.
+const $flushes = [];
+function $mkterminal() {
+  const fs = require("node:fs");
+  let buf = [], size = 0;
+  const flush = () => { if (size) { fs.writeSync(1, buf.join("")); buf = []; size = 0; } };
+  $flushes.push(flush);
+  return {
+    $cap: "Terminal",
+    async read() { return await Bun.stdin.text(); },
+    write(arg) {
+      const t = arg(0, "text");
+      buf.push(t); size += t.length;
+      if (size > 1 << 16) flush();
+    },
+    exit(arg) { flush(); process.exit(arg(0, "code")); },
+  };
+}
+
 function $mkres(spec, root) {
   switch (spec.type) {
     case "Db": {
@@ -853,6 +927,8 @@ function $mkres(spec, root) {
     case "Clock": return $mkclock(spec.now);
     case "Http": return $mkhttp(spec);
     case "Server": return $mkserver(spec);
+    case "Random": return $mkrandom(spec.seed ?? (spec.seed_env ? process.env[spec.seed_env] : undefined));
+    case "Terminal": return $mkterminal();
   }
   throw new $TypeErr(`nieznany zasób ${spec.type}`);
 }
@@ -861,7 +937,9 @@ async function $run_main(main, names, specs, root) {
   const args = names.map((n) => $mkres(specs[n], root));
   try {
     await main(...args);
+    for (const f of $flushes) f();
   } catch (e) {
+    for (const f of $flushes) f();
     console.error(`błąd programu: ${e instanceof $TypeErr ? e.message : e.stack}`);
     process.exit(1);
   }

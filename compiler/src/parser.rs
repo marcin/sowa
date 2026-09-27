@@ -11,8 +11,8 @@ pub struct Parser {
 
 type R<T> = Result<T, Diag>;
 
-const KEYWORDS: [&str; 17] = [
-    "fn", "type", "return", "match", "if", "else", "for", "in", "var", "try", "as", "or", "is", "not", "with", "true", "false",
+const KEYWORDS: [&str; 18] = [
+    "fn", "type", "return", "match", "if", "else", "for", "while", "in", "var", "try", "as", "or", "is", "not", "with", "true", "false",
 ];
 
 pub fn parse_file(src: &str, path: &str, module: &str, is_impl: bool) -> R<SourceFile> {
@@ -486,6 +486,11 @@ impl Parser {
             let iter = self.expr()?;
             let body = self.block()?;
             return Ok(Stmt::For { var, iter, body, line });
+        }
+        if self.eat_kw("while") {
+            let cond = self.expr()?;
+            let body = self.block()?;
+            return Ok(Stmt::While { cond, body, line });
         }
         if self.eat_kw("match") {
             let mut subjects = vec![self.expr()?];

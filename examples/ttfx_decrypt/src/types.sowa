@@ -1,0 +1,25 @@
+desc Kolory, klatki animacji i stan jednej komórki ekranu.
+why zalozenia.md#model
+
+type Channel = Int(α >= 0 && α <= 255)
+
+type Rgb
+  r: Channel
+  g: Channel
+  b: Channel
+
+type Frame
+  desc Klatka sceny: gotowy tekst komórki (kolor ANSI i znak) i liczba taktów, przez które ją widać.
+
+  text: String
+  duration: Int(α > 0)
+
+type Glyph
+  desc
+    Komórka ekranu. order to numer znaku w kolejności pisania, -1 dla pustej komórki.
+    frame i ticks mówią, która klatka sceny trwa i od ilu taktów.
+
+  order: Int(α >= -1)
+  frame: Int(α >= 0)
+  ticks: Int(α >= 0)
+  text: String

@@ -1,0 +1,64 @@
+fn read_canvas(input: String) -> List<List<String>>
+  var lines = []
+  for line in split(input, "\n")
+    lines = lines + [trim_end(expand_tabs(chars(line)))]
+  var kept = []
+  var seen = false
+  for cells in lines.reverse()
+    if seen || len(cells) > 0
+      seen = true
+      kept = kept + [cells]
+  var width = 0
+  for cells in kept
+    if len(cells) > width
+      width = len(cells)
+  return kept.reverse().map(cells => pad(cells, width))
+
+// Tab zajmuje miejsce do najbliższej kolumny podzielnej przez 4.
+fn expand_tabs(cells: List<String>) -> List<String>
+  var out = []
+  for c in cells
+    if c == "\t"
+      out = out + [" "]
+      while len(out) % 4 != 0
+        out = out + [" "]
+    else
+      out = out + [c]
+  return out
+
+fn trim_end(cells: List<String>) -> List<String>
+  var out = []
+  var seen = false
+  for c in cells.reverse()
+    if seen || c != " "
+      seen = true
+      out = out + [c]
+  return out.reverse()
+
+fn pad(cells: List<String>, width: Int) -> List<String>
+  var out = cells
+  while len(out) < width
+    out = out + [" "]
+  return out
+
+fn number_cells(canvas: List<List<String>>) -> List<List<Glyph>>
+  var next = 0
+  var rows = []
+  for line in canvas
+    var row = []
+    for c in line
+      if c == " "
+        row = row + [Glyph(order: -1, frame: 0, ticks: 0, text: " ")]
+      else
+        row = row + [Glyph(order: next, frame: 0, ticks: 0, text: " ")]
+        next = next + 1
+    rows = rows + [row]
+  return rows
+
+fn typed_symbols(canvas: List<List<String>>) -> List<String>
+  var out = []
+  for line in canvas
+    for c in line
+      if c != " "
+        out = out + [c]
+  return out

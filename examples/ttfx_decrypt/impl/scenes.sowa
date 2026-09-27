@@ -1,0 +1,94 @@
+fn cipher_symbols() -> List<String>
+  var out = []
+  for range in [[33, 127], [9608, 9632], [9472, 9599], [174, 452]]
+    var code = at(range, 0)
+    while code < at(range, 1)
+      out = out + [char(code)]
+      code = code + 1
+  return out
+
+fn paint(symbol: String, color: Rgb) -> String
+  rgb = to_string(color.r) + ";" + to_string(color.g) + ";" + to_string(color.b)
+  return char(27) + "[38;2;" + rgb + "m" + symbol + char(27) + "[0m"
+
+fn floor_div(a: Int, b: Int(α > 0)) -> Int
+  q = a / b
+  if q * b > a
+    return q - 1
+  return q
+
+fn gradient(start: Rgb, end: Rgb, steps: Int(α > 0)) -> List<Rgb>
+  dr = floor_div(end.r - start.r, steps)
+  dg = floor_div(end.g - start.g, steps)
+  db = floor_div(end.b - start.b, steps)
+  var out = []
+  var i = 0
+  while i < steps
+    out = out + [Rgb(r: clamp(start.r + dr * i), g: clamp(start.g + dg * i), b: clamp(start.b + db * i))]
+    i = i + 1
+  return out + [end]
+
+fn clamp(x: Int) -> Channel
+  if x < 0
+    return 0
+  if x > 255
+    return 255
+  return x
+
+fn cipher_colors() -> List<Rgb>
+  return [Rgb(r: 0, g: 128, b: 0), Rgb(r: 0, g: 203, b: 0), Rgb(r: 0, g: 255, b: 0)]
+
+fn typing_scene(pool: List<String>(len(α) > 0), random: Random) -> List<Frame>
+  colors = cipher_colors()
+  var out = []
+  for block in ["▉", "▓", "▒", "░"]
+    out = out + [Frame(text: paint(block, random.choice(colors)), duration: 2)]
+  cipher = random.choice(pool)
+  return out + [Frame(text: paint(cipher, random.choice(colors)), duration: 1)]
+
+fn decrypt_scene(symbol: String, pool: List<String>(len(α) > 0), random: Random) -> List<Frame>
+  color = random.choice(cipher_colors())
+  var fast = []
+  var i = 0
+  while i < 80
+    fast = fast + [Frame(text: paint(random.choice(pool), color), duration: 2)]
+    i = i + 1
+  var slow = []
+  count = random.int(1, 15)
+  var j = 0
+  while j < count
+    cipher = random.choice(pool)
+    var time = 0
+    if random.int(0, 100) <= 30
+      time = random.int(35, 59)
+    else
+      time = random.int(3, 5)
+    slow = slow + [Frame(text: paint(cipher, color), duration: time)]
+    j = j + 1
+  white = Rgb(r: 255, g: 255, b: 255)
+  orange = Rgb(r: 237, g: 160, b: 0)
+  shown = gradient(white, orange, 10).map(c => Frame(text: paint(symbol, c), duration: 5))
+  return chain(chain(fast, slow), shown)
+
+fn chain(first: List<Frame>(len(α) > 0), next: List<Frame>(len(α) > 0)) -> List<Frame>
+  var out = []
+  var i = 0
+  for f in first
+    i = i + 1
+    if i < len(first)
+      out = out + [f]
+    else if f.duration > 1
+      out = out + [f with duration: f.duration - 1]
+  head = at(next, 0)
+  return out + [head with duration: 1] + next
+
+fn duration(frames: List<Frame>) -> Int(α >= 0)
+  var total = 0
+  for f in frames
+    total = total + f.duration
+  return total
+
+fn step(glyph: Glyph, frame: Frame) -> Glyph
+  if glyph.ticks + 1 < frame.duration
+    return glyph with ticks: glyph.ticks + 1, text: frame.text
+  return glyph with frame: glyph.frame + 1, ticks: 0, text: frame.text

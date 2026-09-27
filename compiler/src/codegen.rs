@@ -395,6 +395,12 @@ impl<'a> Gen<'a> {
                 }
                 writeln!(out, "{}}}", pad).unwrap();
             }
+            Stmt::While { cond, body, .. } => {
+                let c = self.expr(cond, cx);
+                writeln!(out, "{}while ($bool({})) {{", pad, c).unwrap();
+                self.block(body, cx, out, ind + 1);
+                writeln!(out, "{}}}", pad).unwrap();
+            }
             Stmt::For { var, iter, body, .. } => {
                 let it = self.expr(iter, cx);
                 writeln!(out, "{}for (const {} of $iter({})) {{", pad, v(var), it).unwrap();

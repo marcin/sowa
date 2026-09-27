@@ -1,4 +1,4 @@
-// Runtime Sowy w Ruście dla `sowa test --rust`. To nie jest moduł kompilatora: codegen_rs.rs
+// Runtime Sowy w Ruście dla `sowa test --rust` i `sowa run --rust`. To nie jest moduł kompilatora: codegen_rs.rs
 // dokleja ten plik na początek programu, a rustc kompiluje całość do jednego pliku wykonywalnego.
 // Zachowanie jest takie samo jak w runtime.js: te same wartości, typy w runtime, JSON, formularze,
 // baza (SQLite z systemu przez FFI, bez zależności) i ten sam generator liczb losowych w property.
@@ -1760,6 +1760,43 @@ pub fn b_len(x: V) -> R {
         _ => terr(format!("len działa na tekście i liście, a dostał {}", show(&x))),
     }
 }
+pub fn b_at(xs: V, i: V) -> R {
+    let (V::List(xs), V::Int(i)) = (&xs, &i) else { return terr(format!("at działa na liście i indeksie, a dostał {} i {}", show(&xs), show(&i))) };
+    match xs.get(*i as usize) {
+        Some(x) if *i >= 0 => Ok(x.clone()),
+        _ => terr(format!("at: indeks {} poza listą o długości {}", i, xs.len())),
+    }
+}
+pub fn b_join(xs: V, sep: V) -> R {
+    let V::List(xs) = &xs else { return terr(format!("join działa na liście, a dostał {}", show(&xs))) };
+    let sep = st(&sep, "join")?;
+    let mut out = String::new();
+    for (k, x) in xs.iter().enumerate() {
+        if k > 0 {
+            out.push_str(&sep);
+        }
+        out.push_str(&st(x, "join")?);
+    }
+    Ok(s(&out))
+}
+pub fn b_split(x: V, sep: V) -> R {
+    let (t, p) = (st(&x, "split")?, st(&sep, "split")?);
+    if p.is_empty() {
+        return Ok(list(t.encode_utf16().map(|u| s(&String::from_utf16_lossy(&[u]))).collect()));
+    }
+    Ok(list(t.split(&*p).map(s).collect()))
+}
+pub fn b_chars(x: V) -> R {
+    let t = st(&x, "chars")?;
+    Ok(list(t.chars().map(|c| V::Str(Rc::from(c.encode_utf8(&mut [0; 4]) as &str))).collect()))
+}
+pub fn b_char(code: V) -> R {
+    let V::Int(n) = code else { return terr("char: oczekiwano Int") };
+    match u32::try_from(n).ok().and_then(char::from_u32) {
+        Some(c) => Ok(s(c.encode_utf8(&mut [0; 4]))),
+        None => terr(format!("char: {} nie jest kodem znaku", n)),
+    }
+}
 pub fn b_trim(x: V) -> R {
     Ok(s(st(&x, "trim")?.trim_matches(is_space)))
 }
@@ -1850,6 +1887,8 @@ pub enum Cap {
     Db(Rc<DbShared>, u32),
     Clock(Option<V>),
     Http(Option<fn(V) -> R>),
+    Random(RefCell<Xoshiro>),
+    Terminal,
 }
 impl Cap {
     fn name(&self) -> &'static str {
@@ -1857,7 +1896,69 @@ impl Cap {
             Cap::Db(..) => "Db",
             Cap::Clock(_) => "Clock",
             Cap::Http(_) => "Http",
+            Cap::Random(_) => "Random",
+            Cap::Terminal => "Terminal",
         }
+    }
+}
+
+// Random: xoshiro256++ z ziarnem rozwiniętym przez SplitMix64, ten sam co w runtime.js i w ttfx.
+pub struct Xoshiro([u64; 4]);
+impl Xoshiro {
+    fn seeded(seed: u64) -> Xoshiro {
+        let mut sm = seed;
+        let mut next = || {
+            sm = sm.wrapping_add(0x9E3779B97F4A7C15);
+            let mut z = sm;
+            z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
+            z ^ (z >> 31)
+        };
+        Xoshiro([next(), next(), next(), next()])
+    }
+    fn next(&mut self) -> u64 {
+        let s = &mut self.0;
+        let r = s[0].wrapping_add(s[3]).rotate_left(23).wrapping_add(s[0]);
+        let t = s[1] << 17;
+        s[2] ^= s[0];
+        s[3] ^= s[1];
+        s[1] ^= s[2];
+        s[0] ^= s[3];
+        s[2] ^= t;
+        s[3] = s[3].rotate_left(45);
+        r
+    }
+    fn below(&mut self, n: u64) -> u64 {
+        let bits = 64 - (n - 1).leading_zeros();
+        loop {
+            let r = self.next() >> (64 - bits.max(1));
+            if r < n {
+                return r;
+            }
+        }
+    }
+}
+
+// Terminal: stdout z buforem, opróżnianym co 64 KB, przy exit i na końcu run_main.
+thread_local! {
+    static OUT: RefCell<Vec<u8>> = RefCell::new(Vec::with_capacity(1 << 17));
+}
+fn out_flush() {
+    use std::io::Write;
+    OUT.with(|o| {
+        let mut o = o.borrow_mut();
+        let _ = std::io::stdout().lock().write_all(&o);
+        o.clear();
+    });
+}
+fn out_write(t: &str) {
+    let full = OUT.with(|o| {
+        let mut o = o.borrow_mut();
+        o.extend_from_slice(t.as_bytes());
+        o.len() > 1 << 16
+    });
+    if full {
+        out_flush();
     }
 }
 
@@ -2003,6 +2104,8 @@ pub struct Spec {
     pub url: Option<&'static str>,
     pub now: Option<&'static str>,
     pub fake: Option<fn(V) -> R>,
+    pub seed: Option<&'static str>,
+    pub seed_env: Option<&'static str>,
 }
 
 fn mkres(sp: &Spec) -> R {
@@ -2020,6 +2123,18 @@ fn mkres(sp: &Spec) -> R {
             Some(f) => Ok(V::Cap(Rc::new(Cap::Http(Some(f))))),
             None => terr("Http: backend Rust obsługuje w testach tylko atrapę (fake)"),
         },
+        "Random" => {
+            let text = sp.seed.map(String::from).or_else(|| sp.seed_env.and_then(|k| std::env::var(k).ok()));
+            let seed = match text {
+                Some(t) => match t.trim().parse::<i128>() {
+                    Ok(n) => n as u64,
+                    Err(_) => return terr(format!("Random: ziarno {} nie jest liczbą", t)),
+                },
+                None => std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos() as u64).unwrap_or(1),
+            };
+            Ok(V::Cap(Rc::new(Cap::Random(RefCell::new(Xoshiro::seeded(seed))))))
+        }
+        "Terminal" => Ok(V::Cap(Rc::new(Cap::Terminal))),
         t => terr(format!("zasób {} nie jest obsługiwany w backendzie Rust", t)),
     }
 }
@@ -2105,6 +2220,34 @@ pub fn call(o: V, name: &str, pos: Vec<V>, named: Vec<(&'static str, V)>, targs:
                 V::DT(y, m, d, ..) => Ok(V::Date(y, m, d)),
                 _ => unreachable!(),
             },
+            (Cap::Random(g), "int") => {
+                let (V::Int(lo), V::Int(hi)) = (arg(0, "min"), arg(1, "max")) else { return terr("random.int: oczekiwano Int") };
+                if lo > hi {
+                    return terr(format!("random.int: pusty przedział {}..{}", lo, hi));
+                }
+                Ok(V::Int(lo + g.borrow_mut().below((hi - lo + 1) as u64) as i64))
+            }
+            (Cap::Random(g), "choice") => match arg(0, "list") {
+                V::List(xs) if !xs.is_empty() => Ok(xs[g.borrow_mut().below(xs.len() as u64) as usize].clone()),
+                _ => terr("random.choice: pusta lista"),
+            },
+            (Cap::Terminal, "read") => {
+                use std::io::Read;
+                let mut t = String::new();
+                if let Err(e) = std::io::stdin().read_to_string(&mut t) {
+                    return terr(format!("terminal.read: {}", e));
+                }
+                Ok(s(&t))
+            }
+            (Cap::Terminal, "write") => {
+                out_write(&st(&arg(0, "text"), "terminal.write")?);
+                Ok(V::Unit)
+            }
+            (Cap::Terminal, "exit") => {
+                let V::Int(code) = arg(0, "code") else { return terr("terminal.exit: oczekiwano Int") };
+                out_flush();
+                std::process::exit(code as i32)
+            }
             (Cap::Http(Some(fake)), "post" | "get") => {
                 let (method, path, body) = if name == "post" { ("Post", arg(0, "path"), arg(1, "body")) } else { ("Get", arg(0, "path"), s("")) };
                 fake(mk("HttpRequest", vec![("method", vsing(method)), ("path", path), ("body", body)])?)
@@ -2467,6 +2610,17 @@ fn explain(e: &Ctl) -> String {
         Ctl::Ret(v) => format!("try: wynik to błąd {}", show(v)),
         Ctl::Type(m) => format!("błąd programu: {}", m),
         Ctl::Db(m) => format!("błąd: SQLiteError: {}", m),
+    }
+}
+
+// `sowa run --rust`: zasoby z [resources] według nazw parametrów main.
+pub fn run_main(main: fn(&Res) -> R, spec: Vec<(&'static str, Spec)>) {
+    let r = test_res(&spec).and_then(|r| main(&r));
+    out_flush();
+    if let Err(e) = r {
+        let m = explain(&e);
+        eprintln!("{}", if m.starts_with("błąd") { m } else { format!("błąd programu: {}", m) });
+        std::process::exit(1);
     }
 }
 

@@ -1,8 +1,8 @@
-// sowa check | build | run [--fake NAZWA] | test [--rust]  [KATALOG]
+// sowa check | build [--rust] | run [--fake NAZWA] [--rust] | test [--rust]  [KATALOG]
 //
 // Kompilator czyta projekt (sowa.toml, src/, impl/, docs/), sprawdza go i tłumaczy na jeden
-// plik JavaScript w <projekt>/.sowa/, który uruchamia Bun. `sowa test --rust` zamiast tego
-// tłumaczy testy na Rusta i kompiluje je rustc do pliku wykonywalnego.
+// plik JavaScript w <projekt>/.sowa/, który uruchamia Bun. Z --rust zamiast tego tłumaczy
+// program albo testy na Rusta i kompiluje je rustc do pliku wykonywalnego.
 
 mod ast;
 mod check;
@@ -22,10 +22,11 @@ const USAGE: &str = "użycie: sowa <polecenie> [KATALOG]
 
 polecenia:
   check                 sprawdza projekt: typy, sygnatury, uprawnienia, dokumentację
-  build                 sprawdza i zapisuje program w .sowa/app.js
+  build [--rust]        sprawdza i zapisuje program w .sowa/app.js (z --rust: .sowa/app_rs)
   run [--fake ZASÓB]    buduje i uruchamia program; --fake podmienia zasób na ten z [resources.test]
-  test [--rust]         uruchamia przykłady, property i bloki sowa z docs/;
-                        --rust kompiluje testy do Rusta zamiast JS dla Buna
+  test [--rust]         uruchamia przykłady, property i bloki sowa z docs/
+
+--rust kompiluje do Rusta (rustc) zamiast do JS dla Buna.
 
 KATALOG to katalog projektu albo dowolny katalog pod nim (domyślnie bieżący).";
 
@@ -70,10 +71,6 @@ fn main() -> ExitCode {
     }
     if !fakes.is_empty() && cmd != "run" {
         eprintln!("--fake działa tylko z sowa run");
-        return ExitCode::from(2);
-    }
-    if rust && cmd != "test" {
-        eprintln!("--rust działa tylko z sowa test");
         return ExitCode::from(2);
     }
     match run(&cmd, &dir, &fakes, rust) {
@@ -135,8 +132,23 @@ fn run(cmd: &str, dir: &Path, fakes: &[String], rust: bool) -> Result<ExitCode, 
     let out_dir = root.join(".sowa");
     std::fs::create_dir_all(&out_dir).map_err(|e| format!("{}: {}", out_dir.display(), e))?;
     if rust {
-        let program = codegen_rs::Gen::new(&env).tests_program(&proj, &test_res);
-        return run_rust(&root, &out_dir, &format!("{}\n// ---- program ----\n{}", include_str!("runtime.rs"), program));
+        let (name, program) = if cmd == "test" {
+            ("test_rs", codegen_rs::Gen::new(&env).tests_program(&proj, &test_res))
+        } else {
+            check_fakes(&proj, fakes)?;
+            ("app_rs", codegen_rs::Gen::new(&env).main_program(&proj, fakes))
+        };
+        let src = format!("{}\n// ---- program ----\n{}", include_str!("runtime.rs"), program);
+        let exe = compile_rust(&out_dir, name, &src)?;
+        if cmd == "build" {
+            println!("{}: zapisano {}", proj.name, exe.display());
+            return Ok(ExitCode::SUCCESS);
+        }
+        let status = Command::new(&exe)
+            .current_dir(&root)
+            .status()
+            .map_err(|e| format!("{}: {}", exe.display(), e))?;
+        return Ok(ExitCode::from(status.code().unwrap_or(1).clamp(0, 255) as u8));
     }
     let root_js = codegen::js_str(&proj.root.to_string_lossy());
     let (file, js) = if cmd == "test" {
@@ -147,11 +159,7 @@ fn run(cmd: &str, dir: &Path, fakes: &[String], rust: bool) -> Result<ExitCode, 
         )
     } else {
         let names = check::resource_names(&proj, "resources");
-        for f in fakes {
-            if !names.contains(f) {
-                return Err(format!("--fake {}: nie ma takiego zasobu w [resources]", f));
-            }
-        }
+        check_fakes(&proj, fakes)?;
         let spec = resources_json(&proj, "resources", fakes)?;
         let names_js: Vec<String> = names.iter().map(|n| codegen::js_str(n)).collect();
         let entry = format!("await $run_main(f_main, [{}], {}, {});\n", names_js.join(", "), spec, root_js);
@@ -171,17 +179,25 @@ fn run(cmd: &str, dir: &Path, fakes: &[String], rust: bool) -> Result<ExitCode, 
     Ok(if status.success() { ExitCode::SUCCESS } else { ExitCode::FAILURE })
 }
 
-// Kompiluje testy tylko wtedy, gdy kod się zmienił, i uruchamia je w katalogu projektu.
-fn run_rust(root: &Path, out_dir: &Path, src: &str) -> Result<ExitCode, String> {
-    let file = out_dir.join("test_rs.rs");
-    let exe = out_dir.join("test_rs");
+fn check_fakes(proj: &project::Project, fakes: &[String]) -> Result<(), String> {
+    let names = check::resource_names(proj, "resources");
+    match fakes.iter().find(|f| !names.contains(f)) {
+        Some(f) => Err(format!("--fake {}: nie ma takiego zasobu w [resources]", f)),
+        None => Ok(()),
+    }
+}
+
+// Kompiluje źródło Rusta do .sowa/<name>, tylko gdy kod się zmienił.
+fn compile_rust(out_dir: &Path, name: &str, src: &str) -> Result<PathBuf, String> {
+    let file = out_dir.join(format!("{}.rs", name));
+    let exe = out_dir.join(name);
     let fresh = exe.is_file() && std::fs::read_to_string(&file).is_ok_and(|old| old == src);
     if !fresh {
         std::fs::write(&file, src).map_err(|e| format!("{}: {}", file.display(), e))?;
         let rustc = find_tool("SOWA_RUSTC", "rustc", ".cargo/bin/rustc")
             .ok_or("nie znaleziono rustc: zainstaluj Rusta (https://rustup.rs) albo podaj ścieżkę w SOWA_RUSTC")?;
         let status = Command::new(&rustc)
-            .args(["--edition", "2021", "-O", "--crate-name", "sowa_tests", "-o"])
+            .args(["--edition", "2021", "-O", "--crate-name", &format!("sowa_{}", name), "-o"])
             .arg(&exe)
             .arg(&file)
             .status()
@@ -191,11 +207,7 @@ fn run_rust(root: &Path, out_dir: &Path, src: &str) -> Result<ExitCode, String> 
             return Err(format!("rustc nie skompilował {}", file.display()));
         }
     }
-    let status = Command::new(&exe)
-        .current_dir(root)
-        .status()
-        .map_err(|e| format!("{}: {}", exe.display(), e))?;
-    Ok(if status.success() { ExitCode::SUCCESS } else { ExitCode::FAILURE })
+    Ok(exe)
 }
 
 fn plural(n: usize, one: &str, few: &str, many: &str) -> String {

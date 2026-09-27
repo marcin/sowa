@@ -13,11 +13,12 @@ sowa test [KATALOG]                # przykłady, property (po 100 przypadków) i
 sowa test --rust [KATALOG]         # to samo, ale testy są kompilowane do Rusta
 sowa build [KATALOG]               # zapisuje program w KATALOG/.sowa/app.js
 sowa run [--fake ZASÓB] [KATALOG]  # buduje i uruchamia
+sowa build --rust / run --rust     # program w Ruście: KATALOG/.sowa/app_rs
 ```
 
 `KATALOG` to katalog z `sowa.toml` albo dowolny katalog pod nim. `--fake ksef` bierze opis zasobu `ksef` z `[resources.test]`, czyli atrapę. Bun jest szukany w `SOWA_BUN`, potem w `PATH`, potem w `~/.bun/bin/bun`.
 
-`sowa test --rust` tłumaczy program i testy na jeden plik `.sowa/test_rs.rs`, kompiluje go `rustc -O` do `.sowa/test_rs` i uruchamia. Wynik i komunikaty są takie same jak z Buna, łącznie z wylosowanymi przypadkami property. Kompilacja jest pomijana, gdy kod się nie zmienił. SQLite pochodzi z systemowej biblioteki `libsqlite3`. `rustc` jest szukany w `SOWA_RUSTC`, potem w `PATH`, potem w `~/.cargo/bin/rustc`. Ten backend obsługuje tylko testy, więc nie ma w nim serwera ani prawdziwego `Http`, tylko atrapę.
+`sowa test --rust` tłumaczy program i testy na jeden plik `.sowa/test_rs.rs`, kompiluje go `rustc -O` do `.sowa/test_rs` i uruchamia. Wynik i komunikaty są takie same jak z Buna, łącznie z wylosowanymi przypadkami property. Kompilacja jest pomijana, gdy kod się nie zmienił. SQLite pochodzi z systemowej biblioteki `libsqlite3`. `rustc` jest szukany w `SOWA_RUSTC`, potem w `PATH`, potem w `~/.cargo/bin/rustc`. `sowa build --rust` i `sowa run --rust` kompilują tak samo `main` do `.sowa/app_rs`. Na razie działają w nim zasoby `Db`, `Clock`, `Random` i `Terminal`. Nie ma serwera ani prawdziwego `Http`, tylko atrapa.
 
 ## Pliki
 
