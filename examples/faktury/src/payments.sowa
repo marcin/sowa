@@ -1,0 +1,33 @@
+desc Płatności.
+why zalozenia.md#błędy
+
+type PaymentError = WrongAmount | AlreadyPaid
+
+// Opłacić można tylko fakturę w statusie Issued. To warunek w typie parametru,
+// więc funkcja nie musi go sprawdzać, a wywołujący musi go udowodnić.
+
+fn mark_paid(invoice: Invoice(α.status == Issued), amount: Price) -> Invoice | PaymentError
+  effects Db.write
+
+  doc uzytkownik/faktury.md#płatność
+
+  if amount != totals(invoice.lines, invoice.discount).gross
+    return WrongAmount
+  paid = invoice with status: Paid
+  save_invoice(paid)
+  return paid
+
+// Wywołujący nie wie, jaki status ma faktura z bazy, więc musi to sprawdzić.
+fn pay_from_bank(invoice: Invoice, amount: Price) -> Invoice | PaymentError
+  effects Db.write
+
+  unpaid = invoice as Invoice(α.status == Issued) or return AlreadyPaid
+  return try mark_paid(unpaid, amount)
+
+// Tak się nie skompiluje:
+//
+//   fn pay_from_bank(invoice: Invoice, amount: Price) -> Invoice | PaymentError
+//     effects Db.write
+//     return try mark_paid(invoice, amount)
+//
+// błąd: nie można udowodnić, że invoice.status == Issued

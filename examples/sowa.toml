@@ -1,0 +1,6 @@
+# Wspólny projekt dla przykładów 01–07. Ścieżki po doc i why liczą się od katalogu docs.
+# Przykładowy projekt faktury/ ma własny sowa.toml, który obowiązuje w jego katalogu.
+[project]
+name = "examples"
+src  = "."
+docs = "docs"

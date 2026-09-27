@@ -109,7 +109,7 @@ Kompilator nie przepuści wartości, dla której nie da się udowodnić warunku.
 
 ### Efekty
 
-Linia `effects` pod sygnaturą mówi, co funkcja robi poza liczeniem. Funkcja bez `effects` jest czysta.
+Linia `effects` pod sygnaturą mówi, co funkcja robi poza liczeniem. Funkcja bez `effects` jest czysta. Od kodu oddziela ją pusta linia (zob. [Dokumentacja](#dokumentacja-desc-doc-why-example)).
 
 ```
 fn get_user(id: UserId) -> User
@@ -142,6 +142,143 @@ match charge(user.card, amount)
   NoFunds      => return Declined
   Timeout      => return retry_later()
 ```
+
+### Dokumentacja: `desc`, `doc`, `why`, `example`
+
+Dokumentacja i założenia są częścią języka, a nie komentarzami. Kompilator je zna i sprawdza.
+
+Każde założenie powinno trafić na najwyższy poziom, na jaki się da:
+
+| Poziom | Przykład | Zapis |
+|---|---|---|
+| sprawdzane | „rabat jest od 0 do 100”, „nie łączy się z siecią” | typ z warunkiem, `effects` |
+| testowane | „rabat 20% od 100 daje 80” | `example` |
+| opisowe | co robi funkcja, instrukcja dla użytkownika, dlaczego tak | `desc`, `doc`, `why` |
+
+Każde słowo ma jedną formę, więc po samym słowie widać, czy to tekst, czy odnośnik:
+
+| Słowo | Co zawiera | Forma |
+|---|---|---|
+| `desc` | co robi funkcja albo typ, krótko | tekst bez cudzysłowu: w tej samej linii albo w bloku z wcięciem |
+| `doc` | dokumentacja dla użytkownika | ścieżka do pliku `.md`, opcjonalnie z `#sekcją` |
+| `why` | dlaczego tak: założenie, wymóg biznesowy albo decyzja | ścieżka do pliku `.md`, opcjonalnie z `#sekcją` |
+| `example` | przykład, który uruchamia się jako test i pojawia się w dokumentacji | wyrażenie |
+
+Linie stoją pod sygnaturą w stałej kolejności: `effects`, `desc`, `doc`, `why`, `example`. Każdą z nich można powtórzyć, np. dwie linie `why`, gdy funkcja wynika z dwóch decyzji. `desc`, `doc` i `why` działają też pod definicją typu.
+
+Funkcja ma trzy grupy oddzielone pustą linią, żeby się nie zlewały. Kolejności i odstępów pilnuje formatter:
+
+1. `effects`,
+2. dokumentacja: `desc`, `doc`, `why`, `example`,
+3. kod.
+
+```
+fn issue_invoice(form: InvoiceForm) -> Invoice | IssueError
+  effects Db.read, Db.write, Clock
+
+  doc uzytkownik/faktury.md#wystawianie-faktury
+  why decyzje/002-numeracja-bez-luk.md
+  why decyzje/003-wysylka-osobno.md
+
+  buyer = try read_buyer(form)
+  ...
+```
+
+```
+fn apply_discount(total: Money, pct: Percent) -> Money
+  desc Odejmuje rabat procentowy od kwoty.
+  doc rabaty.md#naliczanie-rabatu
+  why decyzje/rabat-od-brutto.md
+  example apply_discount(100, 20) == 80
+  example apply_discount(100, 0) == 100
+
+  return total - total * pct / 100
+```
+
+Brakującą grupę się pomija, bez podwójnych pustych linii. W typie z polami dokumentacja stoi na górze, a pola pod nią, po pustej linii.
+
+`desc` na kilka linii działa tak samo jak blok po `or`: samo słowo, a pod nim tekst z wcięciem. Blok kończy się tam, gdzie kończy się wcięcie.
+
+```
+fn read_discount(input: Int) -> Percent | DiscountError
+  desc
+    Zamienia rabat wpisany przez użytkownika na Percent.
+    Wartości spoza zakresu nie są przycinane do 0 albo 100,
+    tylko zwracają InvalidDiscount.
+  why decyzje/bez-przycinania-rabatu.md
+```
+
+Reguły:
+
+- **Tekst `desc` jest dosłowny.** Nie ma cudzysłowów ani znaków ucieczki. `"`, `#` i `//` w środku są zwykłym tekstem. Jedyny wyjątek to odnośnik `{Symbol}`, który działa tak samo jak w `.md` (zob. niżej).
+- **`desc` jest krótki, reszta trafia do `.md`.** Kilka linii przy kodzie jest w porządku, a dłuższy tekst blokuje limit z `sowa.toml`. Instrukcja dla użytkownika to `doc`, a uzasadnienie to `why`.
+- **Ścieżki liczą się od katalogu z dokumentacją** podanego w `sowa.toml` (`docs = "docs"`), więc nie powtarzamy `docs/` w każdej linii. Obowiązuje najbliższy `sowa.toml` w górę drzewa katalogów.
+- **Sekcja** (`#nagłówek`) ma nazwę w stylu GitHuba: małe litery, spacje jako `-`, polskie litery zostają, np. `#płatność`.
+
+#### Limity
+
+Tekst i przykłady przy kodzie mają limity. Po przekroczeniu `sowa check` zgłasza ostrzeżenie z prośbą o przeniesienie do `.md`. Pilnuje tego `sowa check`, a nie formatter, bo formatter tylko układa kod i niczego nie zgłasza.
+
+Wartości domyślne są w języku, a projekt może je zmienić w `sowa.toml`:
+
+```toml
+[limits]
+desc_lines    = 3   # linii w desc; dłuższy opis przenieś do .md i wskaż przez doc
+examples      = 3   # przykładów na funkcję; resztę przenieś do bloków sowa w .md
+example_lines = 5   # linii w jednym przykładzie
+```
+
+```
+ostrzeżenie: src/invoice.sowa:44 totals ma 4 przykłady (limit 3 z sowa.toml)
+             przenieś część do bloku ```sowa w pliku .md, np. decyzje/001-vat-od-sumy-w-stawce.md
+```
+
+Przykład przeniesiony do bloku ` ```sowa ` w `.md` dalej jest testem. Często pasuje tam lepiej: przykład, który udowadnia decyzję, leży przy jej opisie.
+
+Agent, który dostanie takie ostrzeżenie, mógłby po prostu usunąć przykład zamiast go przenieść. Dlatego `sowa check` pokazuje przy każdej funkcji wszystkie jej testy, z kodu i z `.md` razem:
+
+```
+totals: 2 testy (1 w kodzie, 1 w decyzje/001-vat-od-sumy-w-stawce.md)
+```
+
+Blok ` ```sowa ` liczy się jako test każdej funkcji, którą wywołuje. Spadek liczby testów widać w wyniku i w diffie.
+
+#### Nagłówek pliku
+
+`desc`, `doc` i `why` na samej górze pliku, bez wcięcia i przed pierwszą definicją, opisują cały plik. Tu trafiają odnośniki do ogólnych założeń, które dotyczą wielu funkcji naraz:
+
+```
+desc Faktura, pozycje i sumy.
+why zalozenia.md#kwoty
+why zalozenia.md#obliczenia-i-efekty
+
+type Line
+  ...
+```
+
+- Nagłówek zastępuje komentarz na początku pliku. Komentarz może się zdezaktualizować po cichu, a odnośnik w nagłówku kompilator sprawdza tak jak każdy inny.
+- `desc`, `doc` albo `why` bez wcięcia w środku pliku to błąd, bo nie wiadomo, czego dotyczy.
+
+#### Co sprawdza kompilator
+
+1. **Plik istnieje.** Brak pliku po `doc` albo `why` to błąd kompilacji.
+2. **Sekcja istnieje.** `#naliczanie-rabatu` musi odpowiadać nagłówkowi w pliku. Zmiana nagłówka w `.md` psuje build, a nie zostawia martwego linku.
+3. **Odnośniki `{Symbol}`.** W `.md` i w `desc` można pisać `{apply_discount}` albo `{Percent}`.
+   - Kompilator sprawdza, czy taki symbol istnieje. Zmiana nazwy w kodzie psuje build, a nie zostawia martwego odnośnika.
+   - Typ z warunkiem renderuje się jako opis warunku, np. `{Percent}` → „od 0 do 100”, więc tekst dla użytkownika nie rozjedzie się z walidacją.
+   - Funkcja renderuje się jako nazwa z linkiem do sygnatury.
+   - Sekcja `.md`, w której stoi `{Symbol}`, jest powiązana z tym symbolem w `docs.lock` (punkt 5), nawet jeśli żaden `doc` ani `why` na nią nie wskazuje.
+4. **Przykłady w `.md` są testami.** Blok kodu oznaczony `sowa` w pliku `.md` kompiluje się i uruchamia tak jak `example`.
+5. **Wykrywanie nieaktualnego opisu.** Tekstu nie da się sprawdzić, ale da się wykryć, że mógł się zdezaktualizować. Kompilator zapamiętuje hash sygnatury, warunków i efektów z chwili, gdy ktoś zatwierdził opis. Gdy się zmienią, zgłasza ostrzeżenie:
+
+   ```
+   ostrzeżenie: rabaty.md#naliczanie-rabatu nie był przeglądany
+                od zmiany apply_discount (zmieniła się sygnatura)
+   ```
+
+   Hashe trzymamy w osobnym pliku `docs.lock`, żeby nie zaśmiecać kodu. Zatwierdzenie opisu aktualizuje ten plik. To łączy się z zasadą nadrzędną: agent zmienia kod, a człowiek potwierdza, że założenie nadal obowiązuje.
+
+Jedna sekcja `.md` może opisywać kilka funkcji. Ostrzeżenie pojawia się wtedy, gdy zmieni się którakolwiek z nich. Sekcja jest powiązana z symbolem na dwa sposoby: przez `doc` albo `why` w kodzie oraz przez `{Symbol}` w jej tekście. Dla nagłówka pliku hash obejmuje sygnatury wszystkich definicji w pliku.
 
 ## Poza zakresem (na razie)
 

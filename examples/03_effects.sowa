@@ -16,6 +16,7 @@ fn send_receipt(email: Email, receipt: Receipt)
 // Wywołujesz funkcję z efektem, więc musisz go zadeklarować u siebie.
 fn notify(id: UserId, receipt: Receipt)
   effects Db.read, Net
+
   user = get_user(id)
   send_receipt(user.email, receipt)
 

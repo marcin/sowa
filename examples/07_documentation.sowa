@@ -1,0 +1,62 @@
+// Dokumentacja: desc, doc, why, example.
+// desc to krótki tekst przy kodzie. doc i why to zawsze odnośniki do .md,
+// liczone od katalogu docs/ (zob. examples/sowa.toml).
+// desc, doc i why bez wcięcia na górze pliku opisują cały plik (nagłówek).
+
+desc Rabaty w koszyku.
+doc rabaty.md
+
+type Percent = Int(α >= 0 && α <= 100)
+  desc Rabat procentowy, od 0 do 100 włącznie.
+type DiscountError = InvalidDiscount
+
+// Jedno zdanie przy kodzie + odnośniki do .md.
+fn apply_discount(total: Money, pct: Percent) -> Money
+  desc Odejmuje rabat procentowy od kwoty.
+  doc rabaty.md#naliczanie-rabatu
+  why decyzje/rabat-od-brutto.md
+  example apply_discount(100, 20) == 80
+  example apply_discount(100, 0) == 100
+  example apply_discount(100, 100) == 0
+
+  return total - total * pct / 100
+
+// desc na kilka linii: samo słowo i blok z wcięciem, jak po or.
+// {Percent} działa jak w .md: kompilator sprawdza symbol, a w dokumentacji
+// wyrenderuje się „Percent (od 0 do 100)”.
+// Dłuższe wyjaśnienie „dlaczego” i tak trafia do .md.
+fn read_discount(input: Int) -> Percent | DiscountError
+  desc
+    Zamienia rabat wpisany przez użytkownika na Percent ({Percent}).
+    Wartości spoza zakresu nie są przycinane do 0 albo 100,
+    tylko zwracają InvalidDiscount.
+  why decyzje/bez-przycinania-rabatu.md
+  example read_discount(20) == 20
+  example read_discount(150) == InvalidDiscount
+
+  return input as Percent or return InvalidDiscount
+
+// Tak się nie skompiluje:
+//
+//   doc rabaty.md#rabat-od-netto
+//
+// błąd: w rabaty.md nie ma sekcji „rabat-od-netto”
+//
+//   desc Zamienia rabat wpisany przez użytkownika
+//     na Percent.
+//
+// błąd: tekst w pierwszej linii desc nie ma kontynuacji; na kilka linii użyj samego desc i bloku
+//
+// Gdyby desc w read_discount miał 6 linii (domyślny limit desc_lines to 3):
+//
+// ostrzeżenie: read_discount ma desc na 6 linii (limit 3)
+//              przenieś opis do .md i wskaż go przez doc
+//
+//   example apply_discount(100, 20) == 70
+//
+// błąd: przykład nie przechodzi: apply_discount(100, 20) zwraca 80, a oczekiwano 70
+//
+// A po zmianie sygnatury apply_discount, np. na (total: Money, pct: Percent, vip: Bool):
+//
+// ostrzeżenie: rabaty.md#naliczanie-rabatu nie był przeglądany
+//              od zmiany apply_discount (zmieniła się sygnatura)

@@ -1,0 +1,33 @@
+desc Wystawianie faktury: od danych z formularza do zapisanej faktury z numerem.
+why zalozenia.md#błędy
+why zalozenia.md#obliczenia-i-efekty
+
+type InvoiceForm
+  buyer_name: String
+  buyer_nip: String
+  buyer_email: String
+  discount: Int
+  lines: List<Line>
+
+type IssueError = InvalidBuyer | InvalidNip | InvalidEmail | InvalidDiscount | EmptyInvoice
+  | NumberingFailed
+
+fn read_buyer(form: InvoiceForm) -> Buyer | IssueError
+  desc Sprawdza dane nabywcy z formularza.
+  name = form.buyer_name as Name or return InvalidBuyer
+  nip = try read_nip(form.buyer_nip)
+  email = form.buyer_email as Email or return InvalidEmail
+  return Buyer(name: name, nip: nip, email: email)
+
+fn issue_invoice(form: InvoiceForm) -> Invoice | IssueError
+  effects Db.read, Db.write, Clock
+
+  doc uzytkownik/faktury.md#wystawianie-faktury
+  why decyzje/002-numeracja-bez-luk.md
+  why decyzje/003-wysylka-osobno.md
+
+  buyer = try read_buyer(form)
+  discount = form.discount as Percent or return InvalidDiscount
+  lines = form.lines as List<Line>(len(α) > 0) or return EmptyInvoice
+  today = current_date()
+  return try save_with_next_number(buyer, lines, discount, today)

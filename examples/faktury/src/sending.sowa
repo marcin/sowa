@@ -1,0 +1,18 @@
+desc Wysyłka faktury e-mailem.
+why decyzje/003-wysylka-osobno.md
+
+type SendError = MailRejected | MailTimeout
+
+fn render_pdf(invoice: Invoice) -> Pdf
+  desc Tworzy PDF faktury. Czysta funkcja: ta sama faktura daje zawsze ten sam PDF.
+fn subject(invoice: Invoice) -> String
+  return "Faktura " + invoice.number
+
+fn send_invoice(invoice: Invoice) -> Sent | SendError
+  effects Net
+
+  doc uzytkownik/faktury.md#wysyłka-e-mailem
+  why decyzje/003-wysylka-osobno.md
+
+  pdf = render_pdf(invoice)
+  return try mail_send(invoice.buyer.email, subject(invoice), pdf)

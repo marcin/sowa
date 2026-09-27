@@ -62,6 +62,33 @@ Ogólna lekcja: skróty w stylu Ruby'ego sprawdzają się w zwykłym kodzie, ale
 
   Bez `let` samo `=` byłoby niejednoznaczne (nowa nazwa czy nadpisanie?), dlatego nadpisanie wymaga `var`, a nieużywana nazwa to błąd. Brak przesłaniania (`input = input.trim()`) traktujemy jako plus, bo wymusza opisowe nazwy.
 - **`as ... or` zamiast `as ... else`.** `else` bez `if` zaskakuje: czytelnik szuka warunku, a ten jest ukryty w `as`. Przeniesione do nowej linii wygląda jak osobny blok. `or` mieści się w jednej linii i czyta się jak zdanie („zamień albo zwróć błąd”), podobnie jak `open(...) or die` w Perlu i Rubym. Słowo jest wolne, bo do warunków logicznych używamy `&&` i `||`. Zwykły `if input is not Percent` zostaje jako alternatywa zbudowana tylko ze znanych konstrukcji.
+- **Dokumentacja w języku, dłuższe teksty w `.md`.** `desc` to krótki tekst bez cudzysłowu (jedna linia albo blok z wcięciem), a `doc` i `why` to zawsze odnośniki do `.md`. Długie opisy i instrukcje dla użytkownika żyją w `.md`, bo tam łatwiej je pisać i czytać, a kompilator pilnuje, żeby odnośniki w obie strony nie były martwe. Droga do tego zapisu:
+
+  | Zapis | Dlaczego nie |
+  |---|---|
+  | `doc "tekst"`, `doc` + blok, `doc see plik.md` | trzy formy jednego słowa, a `why see docs/...` jest długie; długie `why` w bloku przy kodzie rozprasza założenia po plikach |
+  | `doc plik.md` obok `doc "tekst"` (bez `see`) | krócej, ale trzeba znać regułę „cudzysłów to tekst, bez cudzysłowu ścieżka” |
+  | `why @decyzje/002.md` | krótkie, ale trzeba wiedzieć, co znaczy `@` |
+  | `why [decyzja 002](decyzje/002.md)` | znajome z Markdowna, ale dłuższe |
+  | `desc "tekst"` | cudzysłów nic nie dodaje, skoro po `desc` zawsze stoi tekst; do tego jedna linia to za mało |
+  | **`desc tekst`, `doc plik.md`, `why plik.md`** | **wybrane**: po słowie widać, czy to tekst, czy odnośnik; `desc` na kilka linii to blok z wcięciem jak po `or`; ścieżki od katalogu `docs` z `sowa.toml` |
+
+  `desc` w SQL-u znaczy „malejąco”, ale przy funkcji trudno to pomylić. Rozważaliśmy też `summary`.
+
+  Nagłówek funkcji dzielimy pustymi liniami na trzy grupy: `effects`, dokumentacja, kod. Bez odstępów linie `why` zlewały się z pierwszą linią kodu.
+
+  Długość `desc` i liczbę przykładów przy kodzie ograniczają limity z `sowa.toml` (`[limits]`, z wartościami domyślnymi w języku). Po przekroczeniu `sowa check`, a nie formatter, prosi o przeniesienie do `.md`. Żeby agent nie „naprawiał” ostrzeżenia usuwaniem przykładów, `sowa check` pokazuje przy funkcji wszystkie jej testy, z kodu i z `.md`. `{Symbol}` działa też w `desc` i wiąże sekcję `.md` z symbolem w `docs.lock`.
+
+  Jak robią to inni:
+  - Rust: `#![doc = include_str!("../README.md")]` wczytuje `.md` jako dokumentację, a bloki kodu uruchamia jako doctesty; rustdoc sprawdza linki do symboli,
+  - Elixir: `@doc`, `@moduledoc File.read!(...)` z `@external_resource`, doctesty `iex>`,
+  - Go: funkcje `Example` jako testy i dokumentacja,
+  - Eiffel, Dafny: kontrakty trafiają do dokumentacji automatycznie,
+  - Unison: dokumentacja jako wartość z typowanym kodem,
+  - reqlan, Aver, Prove, Pact: nazwane wymagania lub bloki `intent` przypięte do kodu,
+  - Cucumber / Gherkin: specyfikacja w języku naturalnym wykonywana jako testy.
+
+  Wykrywania nieaktualnego opisu po zmianie sygnatury (`docs.lock`) nie znaleźliśmy w takiej formie nigdzie. To może być wyróżnik Sowy.
 - **Ruby: składnia tak, semantyka nie.** Z Ruby'ego warto wziąć brak średników i lekkość zapisu. Nie bierzemy monkey-patchingu, `method_missing`, metaprogramowania ani DSL-i, w których nie wiadomo, skąd bierze się metoda. Tą drogą poszły już Elixir (składnia z Ruby'ego, semantyka z Erlanga) i Crystal.
 - **Jawne zamiast skrótów:**
   - `unless x` → `if not x`
@@ -145,5 +172,20 @@ Izolowane procesy z supervisorem. Stan `observable` jest odpytywalny na żywo.
 - **Efekty a funkcje wyższego rzędu:** jak zapisać `map(items, f)`, gdy `f` ma efekty, żeby sygnatura została czytelna? (Koka: wiersze efektów, ale mało czytelne.) Zob. [ocena.md](ocena.md).
 - **Granice dowodzenia:** czy ograniczyć warunki do arytmetyki liniowej? Co robić, gdy solver nie da rady (np. `total * pct / 100`)?
 - **`or` z wartością domyślną:** czy `input as Percent or 0` nie połyka po cichu błędnych danych? Może dopuszczać tylko `return` i blok.
+- **Wartości limitów:** czy 3 linie `desc`, 3 przykłady i 5 linii na przykład to dobre wartości domyślne? Sprawdzić na większym kodzie.
+- **`example` w grupie dokumentacji:** czy przykłady nie powinny być osobną, czwartą grupą? Przy wielu przykładach grupa dokumentacji robi się długa.
+- **`docs.lock`:** jaki format i jakie polecenie zatwierdza opis (np. `sowa docs review`)? Czy hash obejmuje też ciało funkcji, czy tylko sygnaturę, warunki i efekty?
+- **Renderowanie `{Percent}`:** w jakim języku (polski, angielski)? Skąd brać tłumaczenia? Jak wyrenderować warunek z wywołaniem funkcji, np. `{Nip}` z `nip_checksum_ok(α)`? Może wtedy brać `desc` typu.
+- **Z przykładowego projektu [faktury](../examples/faktury/):**
+  - typy z polami: `type Line` z polami w bloku z wcięciem?
+  - generyki: `List<Line>`? Jak łączą się z warunkami (`List<Line>(len(α) > 0)`)?
+  - argumenty nazwane: `Line(name: "A", quantity: 1)`, czy obowiązkowe?
+  - kopia z jednym zmienionym polem: `invoice with status: Paid`?
+  - moduły: czy wszystkie pliki w `src/` to jedna przestrzeń nazw (jak pakiet w Go), czy potrzebne są importy?
+  - transakcje: zwykła funkcja z lambdą czy osobna konstrukcja?
+  - odczyt daty i czasu jako efekt `Clock`? (Podobnie `Log` w przykładzie 02.)
+  - manifest projektu: `sowa.toml`, jakie pola?
+  - łamanie długich sygnatur i `example` na kilka linii.
+  - nagłówek pliku: hash obejmuje sygnatury całego pliku, więc ostrzeżenie o nieaktualnym opisie pojawi się przy każdej zmianie w pliku. Czy to nie za często? Może tylko zmiana efektów?
 - **Komentarze:** `//` czy `--`? (Nie `#`.)
 - **Rozszerzenie plików:** `.sowa`.

@@ -8,6 +8,7 @@ type CheckoutError = InvalidDiscount | EmptyCart | PaymentError
 // łączy się z siecią, zapisuje do bazy i może zwrócić CheckoutError.
 fn checkout(user: User, input: Int) -> Receipt | CheckoutError
   effects Net, Db.write
+
   pct = input as Percent or return InvalidDiscount
   amount = apply_discount(cart_total(user.cart), pct) as Price or return EmptyCart
   return try pay(user, amount)

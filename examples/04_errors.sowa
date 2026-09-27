@@ -10,6 +10,7 @@ fn charge(card: Card, amount: Price) -> Receipt | PaymentError
 // try: jeśli wynik jest błędem, funkcja kończy się i zwraca go wyżej.
 fn pay(user: User, amount: Price) -> Receipt | PaymentError
   effects Net, Db.write
+
   receipt = try charge(user.card, amount)
   save_receipt(receipt)
   return receipt
@@ -18,6 +19,7 @@ fn pay(user: User, amount: Price) -> Receipt | PaymentError
 // Po dodaniu np. Fraud do PaymentError ten match przestanie się kompilować.
 fn pay_or_retry(user: User, amount: Price) -> Receipt | CheckoutError
   effects Net, Db.write
+
   match pay(user, amount)
     Receipt r    => return r
     CardDeclined => return Declined

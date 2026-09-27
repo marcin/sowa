@@ -1,0 +1,13 @@
+# Katalog główny projektu Sowa. Ścieżki po doc i why liczą się od katalogu docs.
+[project]
+name = "faktury"
+src  = "src"
+docs = "docs"
+
+# Limity dokumentacji przy kodzie. Po przekroczeniu `sowa check` prosi
+# o przeniesienie tekstu lub przykładów do .md. Bez tej sekcji obowiązują
+# wartości domyślne języka (te same co tutaj).
+[limits]
+desc_lines    = 3   # linii w desc; dłuższy opis przenieś do .md i wskaż przez doc
+examples      = 3   # przykładów na funkcję; resztę przenieś do bloków sowa w .md
+example_lines = 5   # linii w jednym przykładzie

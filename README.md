@@ -9,6 +9,7 @@ type Percent = Int(α >= 0 && α <= 100)
 
 fn checkout(user: User, input: Int) -> Receipt | CheckoutError
   effects Net, Db.write
+
   pct = input as Percent or return InvalidDiscount
   amount = apply_discount(cart_total(user), pct)
   return try pay(user, amount)
@@ -23,6 +24,7 @@ Z samej sygnatury widać, że funkcja łączy się z siecią, zapisuje do bazy i
 - [docs/porownanie.md](docs/porownanie.md) – tabele porównawcze z popularnymi językami i z językami ery AI
 - [docs/ocena.md](docs/ocena.md) – szczera ocena: mocne i słabe strony, następny krok
 - [examples/](examples/) – pierwsze przykłady kodu
+- [examples/faktury/](examples/faktury/) – przykładowy projekt: kod, dokumentacja dla użytkownika i decyzje
 
 ## Status
 
