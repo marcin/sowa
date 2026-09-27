@@ -1,6 +1,6 @@
 # Przykładowy projekt: invoices
 
-Mały system do wystawiania faktur, napisany w Sowie. Pokazuje, jak w jednym projekcie współpracują kod, dokumentacja dla użytkownika i zapisane decyzje.
+Mały system do wystawiania faktur z prostą aplikacją webową, napisany w Sowie. Pokazuje, jak w jednym projekcie współpracują kod, dokumentacja dla użytkownika i zapisane decyzje.
 
 Człowiek zatwierdza [specyfikację](../../docs/specyfikacja.md) w `src/` i dokumentację w `docs/`, a kodu w `impl/` nie czyta. Wyjątkiem jest numeracja, której kod człowiek czyta.
 
@@ -21,6 +21,7 @@ invoices/
     numbering.sowa             numery FV/2026/0001 nadawane w transakcji
     payments.sowa              mark_paid, pay_from_bank
     sending.sowa               send_invoice: PDF i e-mail przez mail: Mailer
+    web.sowa                   aplikacja webowa: route, handle, strony HTML
     main.sowa                  main: jedyne miejsce, w którym program dostaje uprawnienia
   impl/                        ciała funkcji, te same nazwy plików co w src/
     numbering.sowa             ten plik człowiek czyta (jest w CODEOWNERS)
@@ -42,7 +43,9 @@ invoices/
 | `impl/sending.sowa` | `subject`: prywatna funkcja pomocnicza, której nie ma w `src/` |
 | `impl/issuing.sowa` | cała walidacja formularza przez `as ... or` i `try`; `db: Db, clock: Clock` w parametrach, bez `Mailer`; data z `clock.today()` |
 | `src/sending.sowa`, `sowa.toml` | wysyłka z `mail: Mailer` jako osobna funkcja (decyzja 003); adres serwera tylko w `[resources]` |
-| `src/main.sowa`, `sowa.toml` | `fn main(db: Db, clock: Clock, mail: Mailer)`: runtime przekazuje zasoby z `[resources]` według nazwy parametru |
+| `src/main.sowa`, `sowa.toml` | `fn main(db: Db, clock: Clock, mail: Mailer, web: Server)`: runtime przekazuje zasoby z `[resources]` według nazwy parametru |
+| `src/web.sowa` | `Request` i `Response` jako zwykłe wartości; czysty `route` z przykładami; `handle` z kompletem uprawnień, a każdy adres z węższym zestawem (`get_invoice` tylko z `DbRead`) |
+| `impl/web.sowa` | `match` na błędach zamienia je na odpowiedzi HTTP; strony z literałów `html"..."`, w których wstawiony tekst jest escapowany |
 | `src/numbering.sowa` | `last_invoice_seq(year, db: DbRead)`: funkcja, która tylko czyta, dostaje węższe uprawnienie |
 | `impl/numbering.sowa` | `db.transaction(tx => ...)`: transakcja jako operacja na `Db` |
 | `src/payments.sowa` | warunek na polu w typie parametru i w wyniku: `Invoice(α.status == Issued)` → `Invoice(α.status == Paid)` |
@@ -67,4 +70,5 @@ Przykład używa kilku rzeczy, których nie ma jeszcze w [specyfikacji](../../do
 - zapis wywołań bibliotek spoza Sowy w `src/`,
 - transakcje (`db.transaction(tx => ...)`),
 - pełna lista operacji na wbudowanych uprawnieniach (`clock.today()`, `mail.send(...)`),
-- plik `sowa.toml`.
+- plik `sowa.toml`,
+- w aplikacji webowej: warianty z danymi (`ShowInvoice(number: ...)`), `match` na kilku wartościach i na liście segmentów, `_` w `match`, odczyt formularza przez `as InvoiceForm`, literały `html"..."`, uprawnienie `Server`. Pełna lista w [przemyslenia.md](../../docs/przemyslenia.md#aplikacja-webowa).

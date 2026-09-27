@@ -1,0 +1,67 @@
+desc Aplikacja webowa: formularz nowej faktury, podgląd faktury i wysyłka e-mailem.
+why zalozenia.md#obliczenia-i-uprawnienia
+why zalozenia.md#błędy
+
+// Zapytanie i odpowiedź to zwykłe wartości. Serwer (web: Server w main) tylko
+// zamienia HTTP na Request i Response na HTTP, więc routing i strony testuje się bez niego.
+
+type Method = Get | Post
+
+type Request
+  method: Method
+  path: String
+  body: String
+
+// Runtime zamienia wariant na kod HTTP: 200, 303, 400, 404 i 503.
+type Response = Ok(body: Html) | Redirect(to: String) | BadRequest(body: Html)
+  | NotFound(body: Html) | Unavailable(body: Html)
+
+type Route = NewInvoice | CreateInvoice | ShowInvoice(number: InvoiceNumber)
+  | SendInvoice(number: InvoiceNumber) | UnknownPath
+  desc Adresy aplikacji. Nieznany adres to zwykły wariant, a nie błąd.
+
+type LookupError = NoInvoice
+
+fn route(method: Method, path: String) -> Route
+  desc Zamienia metodę i ścieżkę na adres aplikacji. Numer w ścieżce jest bez „FV/”.
+
+  example route(Get, "/invoices/new") == NewInvoice
+  example route(Get, "/invoices/2026/0042") == ShowInvoice(number: "FV/2026/0042")
+  example route(Get, "/invoices/2026/0") == UnknownPath
+
+fn invoice_path(number: InvoiceNumber) -> String
+  example invoice_path("FV/2026/0042") == "/invoices/2026/0042"
+
+// Jedyna funkcja z kompletem uprawnień. Każdy adres dostaje dalej tylko to, czego potrzebuje.
+fn handle(req: Request, db: Db, clock: Clock, mail: Mailer) -> Response
+  desc Obsługuje jedno zapytanie. Serwer może wywoływać ją równolegle.
+
+// Bez Mailer: zapis formularza niczego nie wysyła (decyzja 003).
+fn post_invoice(req: Request, db: Db, clock: Clock) -> Response
+  desc Wystawia fakturę z formularza i przekierowuje na jej stronę.
+  doc uzytkownik/faktury.md#wystawianie-faktury
+
+fn get_invoice(number: InvoiceNumber, db: DbRead) -> Response
+
+fn post_send(number: InvoiceNumber, db: DbRead, mail: Mailer) -> Response
+  doc uzytkownik/faktury.md#wysyłka-e-mailem
+
+fn find_invoice(number: InvoiceNumber, db: DbRead) -> Invoice | LookupError
+
+// Strony są czyste: dane wchodzą, Html wychodzi.
+// Html powstaje tylko z literałów html"...". Wstawiony tekst jest escapowany według miejsca
+// (treść, atrybut, adres), jak w html/template w Go.
+
+fn form_page(form: InvoiceForm, messages: List<String>) -> Html
+  property not contains(to_string(form_page(form, messages)), "<script")
+
+fn invoice_page(invoice: Invoice) -> Html
+  property contains(to_string(invoice_page(invoice)), invoice.number)
+
+fn not_found_page() -> Html
+
+// Komunikaty dla użytkownika powstają tutaj, a nie w logice (zob. why w nagłówku).
+// Nowy wariant w IssueError albo SendError to błąd kompilacji, dopóki nie dostanie komunikatu.
+fn error_message(error: IssueError | SendError) -> String
+  example error_message(InvalidNip) == "Nieprawidłowy NIP."
+  example error_message(EmptyInvoice) == "Faktura musi mieć co najmniej jedną pozycję."

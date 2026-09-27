@@ -14,14 +14,15 @@ examples      = 3   # example i property na funkcję; resztę przenieś do blok�
 example_lines = 5   # linii w jednym przykładzie
 
 # Zasoby, które runtime przekazuje do main według nazwy parametru:
-# fn main(db: Db, clock: Clock, mail: Mailer). Innych uprawnień program nie ma,
-# bo uprawnienia nie da się utworzyć w kodzie. Adres z `mail` jest też jedynym
-# połączeniem sieciowym, na które pozwala runtime.
+# fn main(db: Db, clock: Clock, mail: Mailer, web: Server). Innych uprawnień program
+# nie ma, bo uprawnienia nie da się utworzyć w kodzie. Adresy z `db`, `mail` i `web`
+# to jedyne połączenia sieciowe, na które pozwala runtime.
 # Uzasadnienie w docs/zalozenia.md#obliczenia-i-uprawnienia.
 [resources]
 db    = { type = "Db", url = "postgres://localhost/invoices" }
 clock = { type = "Clock" }
 mail  = { type = "Mailer", server = "smtp.firma.pl:587" }
+web   = { type = "Server", listen = "0.0.0.0:8080" }
 
 # Zatwierdzanie podpisanym commitem, przy pracy bez PR albo na jednym koncie.
 # Zob. docs/zatwierdzanie.md w repozytorium Sowy.

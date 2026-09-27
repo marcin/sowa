@@ -1,3 +1,4 @@
-fn main(db: Db, clock: Clock, mail: Mailer)
-  // ciało pominięte w przykładzie: dla każdego wysłanego formularza
-  // issue_invoice(form, db, clock), a po zapisie send_invoice(invoice, mail)
+fn main(db: Db, clock: Clock, mail: Mailer, web: Server)
+  // Lambda używa uprawnień z otoczenia. serve nie ma ich w sygnaturze,
+  // więc może zrobić tylko to, co handle.
+  web.serve(req => handle(req, db, clock, mail))

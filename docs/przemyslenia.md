@@ -149,6 +149,32 @@ Ogólna lekcja: skróty w stylu Ruby'ego sprawdzają się w zwykłym kodzie, ale
   Plik w `impl/` powtarza linię `fn`. To dublowanie, ale bez niego plik z ciałami nie dałby się czytać bez otwierania `src/` obok. Kompilator sprawdza, czy obie linie są identyczne.
 
   Uprawnienia do sieci mają zasób (`Mailer` do jednego serwera, `Http` do jednego adresu), bo w nieczytanym kodzie samo „sieć” znaczy „dowolny adres”.
+- **Kompilacja: liczenie referencji zamiast borrow checkera.** Pytanie brzmiało: czy Sowa może działać tak szybko jak Rust, a kompilować się szybciej. Rust zawdzięcza szybkość temu, że nie ma GC, a własność (`&`, `&mut`, czasy życia) sprawdza w kompilacji. Tyle że czasy życia trafiłyby do sygnatur w `src/`, a te czyta człowiek.
+
+  | Wariant | Ocena |
+  |---|---|
+  | własność i pożyczanie jak w Ruście | odrzucone: `fn totals<'a>(lines: &'a [Line])` w specyfikacji to szum, który nic nie mówi o fakturach, a agent traciłby czas na walkę z borrow checkerem |
+  | GC jak w Go albo w JVM | proste, ale z pauzami i większym zużyciem pamięci; tak działa pierwszy backend (TypeScript) |
+  | **liczenie referencji z modyfikacją w miejscu (Perceus w Koce, Lean 4, Roc)** | **kierunek**: wartości są niezmienne, więc nie tworzą cykli; gdy licznik wynosi 1, `invoice with status: Paid` zmienia rekord w miejscu zamiast go kopiować; sygnatury zostają bez zmian |
+
+  Co jeszcze przyspiesza program:
+  - typy z warunkami usuwają sprawdzenia w runtime: indeks typu `Int(α >= 0 && α < len(xs))` nie potrzebuje sprawdzenia granic, a `Percent` nie wymaga walidacji w każdej funkcji,
+  - uprawnienia nic nie kosztują: to zwykłe parametry, bez obsługi efektów w runtime,
+  - czyste funkcje kompilator może bezpiecznie przestawiać, łączyć i liczyć równolegle.
+
+  Dlaczego kompilacja może być szybsza niż w Ruście:
+  - nie ma makr, więc nie trzeba ich rozwijać przed sprawdzeniem typów,
+  - sygnatury są jawne, więc każdą funkcję sprawdza się osobno i równolegle,
+  - `src/` działa jak `.mli` w OCamlu: zmiana w `impl/` nie wymaga ponownego sprawdzania modułów, które z niego korzystają,
+  - generyki bez pełnej monomorfizacji w pracy (kształty jak w Go, GC shape stenciling), pełne kopie tylko w buildzie produkcyjnym,
+  - dwa backendy: szybki (np. Cranelift) w pracy i LLVM w buildzie produkcyjnym.
+
+  Nowy koszt, którego Rust nie ma, to solver. Ograniczenia:
+  - warunki w arytmetyce liniowej, która jest rozstrzygalna i szybka; resztę sprawdza runtime,
+  - wynik solvera w cache według hasha funkcji i jej zależności,
+  - limit pracy solvera w jednostkach, a nie w sekundach (jak `--resource-limit` w Dafny), żeby wynik buildu nie zależał od szybkości maszyny. Po przekroczeniu limitu warunek sprawdza runtime, a `sowa review` to pokazuje.
+
+  Realistyczny cel: kompilacja jak w Go, a działanie blisko Swifta albo Roca. W ciasnych pętlach liczbowych Sowa będzie wolniejsza od Rusta o koszt liczników. Kolejność: najpierw backend do TypeScriptu i Deno (szybko do działania, gotowe `--allow-net`), własny backend dopiero, gdy język się ustabilizuje.
 - **Ruby: składnia tak, semantyka nie.** Z Ruby'ego warto wziąć brak średników i lekkość zapisu. Nie bierzemy monkey-patchingu, `method_missing`, metaprogramowania ani DSL-i, w których nie wiadomo, skąd bierze się metoda. Tą drogą poszły już Elixir (składnia z Ruby'ego, semantyka z Erlanga) i Crystal.
 - **Jawne zamiast skrótów:**
   - `unless x` → `if not x`
@@ -190,6 +216,44 @@ Czym Sowa może się wyróżnić (to akcenty, a nie przełom):
 - celowo znajoma, minimalistyczna składnia.
 
 Uczciwie: realistyczna droga może też polegać na dodaniu efektów, kontraktów i śledzenia recenzji do istniejącego stosu (linter lub reguła w CI) zamiast budowania nowego języka.
+
+## Aplikacja webowa
+
+Próba: czy w Sowie da się napisać prostą aplikację webową. Szkic leży w przykładzie [invoices](../examples/invoices/): `src/web.sowa`, `impl/web.sowa` i `main` z `web: Server`. Aplikacja ma formularz nowej faktury, stronę faktury i przycisk wysyłki e-mailem.
+
+Wniosek: da się, a uprawnienia pasują do weba lepiej niż do reszty przykładu. Brakuje jednak kilku konstrukcji, bez których aplikacji nie da się napisać, i części biblioteki standardowej.
+
+Co pasuje:
+
+- **Zapytanie i odpowiedź to zwykłe wartości.** `handle(req, db, clock, mail) -> Response` to zwykła funkcja, a routing (`route(method, path) -> Route`) jest czysty i ma przykłady w `src/`. Serwer tylko zamienia HTTP na `Request` i `Response` na HTTP.
+- **Uprawnienia per adres.** Komplet ma tylko `handle`. Strona faktury (`get_invoice`) dostaje samo `DbRead`, a zapis formularza (`post_invoice`) nie dostaje `Mailer`. Recenzent widzi w `src/`, że wyświetlenie faktury niczego nie zapisze ani nie wyśle. W typowym frameworku każdy handler ma dostęp do wszystkiego.
+- **Bez nowych reguł w `main`.** `web.serve(req => handle(req, db, clock, mail))` korzysta z reguły o lambdach: `serve` może zrobić tylko to, co przekazana funkcja.
+- **Błędy na odpowiedzi przez `match`.** Nowy wariant w `IssueError` nie skompiluje się, dopóki nie dostanie komunikatu w `error_message`. Założenie „komunikaty powstają w interfejsie” ma teraz konkretne miejsce.
+- **Równoległe zapytania bez wyścigów w pamięci.** Wartości są niezmienne i nie ma zmiennych globalnych, więc jedyny wspólny stan to baza. Numerację chroni transakcja.
+- **`async` z sygnatury (propozycja).** W backendzie TS funkcja z uprawnieniem kompiluje się do `async`, a czysta do zwykłej. Nikt nie pisze `await`, a „kolorowanie funkcji” wynika z tego, co już stoi w sygnaturze.
+- **`property` jako test bezpieczeństwa.** `not contains(to_string(form_page(form, messages)), "<script")` sprawdza escapowanie na dowolnych danych z formularza.
+
+Czego brakuje:
+
+| Luka | W szkicu | Uwagi |
+|---|---|---|
+| warianty z danymi | `ShowInvoice(number: InvoiceNumber)`, `Ok(body: Html)` | bez nich nie ma `Route` ani `Response`; najważniejsza luka, potrzebna też poza webem |
+| `match` na kilku wartościach i na liście | `match method, segments(path)` z `["invoices", year, seq]` | alternatywa to łańcuch `if`, czytelny gorzej |
+| `_` w `match` | `_ => return UnknownPath` | kłóci się z regułą, że nowy wariant psuje niepełny `match`; propozycja: `_` tylko dla typów bez skończonej listy wariantów (`String`, `List`, `Int`), nigdy dla unii |
+| blok po `=>` | dwie linie w gałęzi `route` | dziś przykłady mają w gałęzi tylko `return` |
+| odczyt formularza i JSON | `req.body as InvoiceForm or ...` | `as` z tekstu na rekord, dekoder generuje kompilator z typu (bez makr, jak `derive` w Ruście); `as` mówi tylko „nie pasuje”, a formularz potrzebuje błędu przy polu, dlatego `InvoiceForm` trzyma tekst, a sprawdza go `read_buyer`; lista pozycji w formularzu HTML to nazwy `lines[0].name` albo JSON |
+| HTML | `html"..."` z `{...}` | wstawiony tekst escapowany według miejsca (treść, atrybut, adres), jak w `html/template` w Go; zwykłe napisy nie mają interpolacji, a literały wieloliniowe nie mają reguł wcięć |
+| uprawnienie `Server` | `web = { type = "Server", listen = "0.0.0.0:8080" }` | nowy wbudowany typ; przy Deno to kolejny adres w `--allow-net` |
+| testy funkcji z uprawnieniami | `post_invoice` bez `example` | przykład potrzebuje `Db` i `Clock`; propozycja: `[resources.test]` z bazą w pamięci i stałym zegarem, na których `sowa test` uruchamia takie przykłady; bez tego najważniejsza ścieżka (formularz → zapis) nie ma testu w `src/` |
+| zapytania do bazy | `find_invoice` bez ciała | typowane i zawsze parametryzowane (bez SQL injection), wiersz zamieniany na rekord z warunkami |
+| sesje, logowanie, CSRF | nie ma | dziś każdy może wystawić fakturę; potrzeba ciasteczek w `Request` i `Response`, `Random` na tokeny i hashowania haseł (biblioteka spoza Sowy, `extern fn`) |
+| `as` na unii | `parse_int(year) as Int(α >= 2000)` | `as` zawęża `Int \| NotANumber` do `Int` z warunkiem |
+
+Przy okazji wyszedł słaby typ. Naturalna `property route(Get, invoice_path(number)) == ShowInvoice(number: number)` nie przejdzie, bo `InvoiceNumber` wymaga tylko prefiksu „FV/”: generator poda np. `"FV/x"`, a `route` zwróci `UnknownPath`. Typ powinien opisywać cały format, np. `matches(α, "FV/[0-9]{4}/[0-9]{4,}")`. W szkicu tego nie poprawiono, bo to zmiana w numeracji, której kod czyta człowiek. To dobry argument za `property`: jedna linia pokazała lukę w specyfikacji, której nie wychwycił żaden przykład.
+
+Poza próbą zostały: wydajność serwera, strumieniowanie, WebSockety i przesyłanie plików.
+
+Następny krok: warianty z danymi i `[resources.test]` do specyfikacji, bo przydadzą się też poza webem. Reszta (`html"..."`, odczyt formularza, zapytania) to biblioteka standardowa.
 
 ## Szkice na później
 
@@ -245,5 +309,7 @@ Izolowane procesy z supervisorem. Stan `observable` jest odpytywalny na żywo.
   - `Secret` / `Pii` dla danych wrażliwych: typ opakowujący czy etykieta na polu?
   - zasoby dla bazy: `Db` zawężony do jednej tabeli?
   - czy `impl/` musi powtarzać sygnatury, czy wystarczy sama nazwa funkcji?
+- **Kompilacja:** kiedy własny backend zamiast TypeScriptu? Czy liczenie referencji wystarczy przy bibliotekach spoza Sowy, które mogą tworzyć cykle? Jaki domyślny limit pracy solvera?
+- **Aplikacja webowa:** luki z [próby](#aplikacja-webowa): warianty z danymi, `match` na listach i `_`, odczyt formularza, `html"..."`, `Server`, `[resources.test]`, zapytania do bazy, sesje.
 - **Komentarze:** `//` czy `--`? (Nie `#`.)
 - **Rozszerzenie plików:** `.sowa`.

@@ -498,4 +498,5 @@ Te pomysły padły, ale nie są jeszcze rozpisane. Szczegóły w [przemyslenia.m
 - zapytania o program (`query callers(charge) where takes Http`)
 - pochodzenie kodu (`@origin(agent: ..., reviewed: false)`) i polityki wdrożeń
 - procesy z supervisorem i obserwowalnym stanem, w stylu Erlanga
-- model pamięci i kompilacja (LLVM / WASM, własność jak w Ruście)
+- kompilacja do kodu maszynowego: kierunek to liczenie referencji jak w Koce i Roc, bez borrow checkera
+- aplikacja webowa: serwer, formularze, HTML (szkic w [invoices](../examples/invoices/src/web.sowa))
