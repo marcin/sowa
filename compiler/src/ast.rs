@@ -367,6 +367,79 @@ pub fn quote(s: &str) -> String {
     out
 }
 
+// Warunek z parametrem `from` jako warunek z α.
+pub fn rename(e: &Expr, from: &str) -> Expr {
+    if from == "α" {
+        return e.clone();
+    }
+    subst(e, &|n| {
+        (n == from).then(|| Expr {
+            kind: ExprKind::Ident("α".into()),
+            line: e.line,
+        })
+    })
+}
+
+// Wyrażenie z identyfikatorami zamienionymi przez f. Lambda zasłania swój parametr, a lambdy
+// z blokiem zostają bez zmian.
+pub fn subst(e: &Expr, f: &dyn Fn(&str) -> Option<Expr>) -> Expr {
+    let r = |x: &Expr| Box::new(subst(x, f));
+    let args = |a: &[Arg]| -> Vec<Arg> {
+        a.iter()
+            .map(|a| Arg {
+                name: a.name.clone(),
+                value: subst(&a.value, f),
+            })
+            .collect()
+    };
+    let kind = match &e.kind {
+        ExprKind::Ident(n) => match f(n) {
+            Some(x) => return x,
+            None => ExprKind::Ident(n.clone()),
+        },
+        ExprKind::Field { obj, name } => ExprKind::Field {
+            obj: r(obj),
+            name: name.clone(),
+        },
+        ExprKind::Call { name, args: a } => ExprKind::Call {
+            name: name.clone(),
+            args: args(a),
+        },
+        ExprKind::Method { obj, name, targs, args: a } => ExprKind::Method {
+            obj: r(obj),
+            name: name.clone(),
+            targs: targs.clone(),
+            args: args(a),
+        },
+        ExprKind::Bin { op, l, r: rr } => ExprKind::Bin { op, l: r(l), r: r(rr) },
+        ExprKind::Not(x) => ExprKind::Not(r(x)),
+        ExprKind::Neg(x) => ExprKind::Neg(r(x)),
+        ExprKind::Try(x) => ExprKind::Try(r(x)),
+        ExprKind::List(v) => ExprKind::List(v.iter().map(|x| subst(x, f)).collect()),
+        ExprKind::Is { e: x, ty, neg } => ExprKind::Is {
+            e: r(x),
+            ty: ty.clone(),
+            neg: *neg,
+        },
+        ExprKind::With { e: x, fields } => ExprKind::With {
+            e: r(x),
+            fields: fields.iter().map(|(n, v)| (n.clone(), subst(v, f))).collect(),
+        },
+        ExprKind::Lambda {
+            param,
+            body: LambdaBody::Expr(b),
+        } => {
+            let g = |n: &str| if n == param { None } else { f(n) };
+            ExprKind::Lambda {
+                param: param.clone(),
+                body: LambdaBody::Expr(Box::new(subst(b, &g))),
+            }
+        }
+        k => k.clone(),
+    };
+    Expr { kind, line: e.line }
+}
+
 impl fmt::Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match &self.kind {

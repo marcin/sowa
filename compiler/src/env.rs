@@ -272,6 +272,40 @@ impl<'a> Env<'a> {
         }
     }
 
+    // Zawężenie albo inna nazwa typu (`type Percent = Int(...)`), a nie unia ani rekord.
+    pub fn is_refine(&self, t: &TypeExpr) -> bool {
+        match t {
+            TypeExpr::Name { name, fields: None, cond, .. } if self.is_type(name) => cond.is_some() || self.leaves(t) == [name.clone()],
+            _ => false,
+        }
+    }
+
+    // Typ bazowy po rozwinięciu zawężeń i warunki ze wszystkich poziomów, z parametrem α.
+    pub fn flatten(&self, t: &TypeExpr) -> (String, Vec<Expr>) {
+        self.flatten_in(t, 0)
+    }
+
+    fn flatten_in(&self, t: &TypeExpr, depth: usize) -> (String, Vec<Expr>) {
+        let TypeExpr::Name { name, args, cond, .. } = t else {
+            return (t.to_string(), vec![]);
+        };
+        let own: Vec<Expr> = cond.iter().map(|c| rename(&c.expr, &c.param)).collect();
+        if let Some((TypeDecl { body: TypeBody::Rhs(ts), .. }, _)) = self.types.get(name) {
+            if ts.len() == 1 && self.is_refine(&ts[0]) && depth < 20 {
+                let (b, mut cs) = self.flatten_in(&ts[0], depth + 1);
+                cs.extend(own);
+                return (b, cs);
+            }
+        }
+        let base = if args.is_empty() {
+            name.clone()
+        } else {
+            let a: Vec<String> = args.iter().map(|x| x.to_string()).collect();
+            format!("{}<{}>", name, a.join(", "))
+        };
+        (base, own)
+    }
+
     // `type Quantity = Int(α > 0)` to zawężenie, a nie unia: jego liść to sama nazwa.
     // `type SendError = MailError` bez warunku to inna nazwa tej samej unii, więc się rozwija.
     fn is_single_refine(&self, terms: &[TypeExpr]) -> bool {
