@@ -5,6 +5,7 @@ Projekt języka programowania na erę AI (na razie tylko specyfikacja i przykła
 Przed pracą przeczytaj:
 - docs/zalozenia.md – zasady i ustalona składnia (źródło prawdy)
 - docs/przemyslenia.md – uzasadnienia, odrzucone warianty, otwarte pytania
+- docs/zatwierdzanie.md – jak człowiek zatwierdza zmiany agenta (sowa review, *.lock, CODEOWNERS)
 - docs/porownanie.md – porównanie z innymi językami
 - docs/ocena.md – ocena projektu i proponowany następny krok (prototyp checkera)
 - examples/*.sowa – przykłady; muszą być zgodne z docs/zalozenia.md
@@ -14,3 +15,8 @@ Zasady przy zmianach:
 - Nie wprowadzaj nowej składni w przykładach bez dopisania jej do zalozenia.md albo do otwartych pytań.
 - Decyzje odrzucone wraz z powodem zapisuj w przemyslenia.md.
 - Dokumentacja jest po polsku.
+
+W projektach w Sowie (np. examples/faktury):
+- Nie uruchamiaj `sowa review` i nie edytuj plików `*.lock`. Zatwierdza człowiek.
+- Nie zmieniaj sekcji `[effects]`, `[review]` ani `[limits]` w `sowa.toml`. Jeśli uważasz, że trzeba, zaproponuj zmianę człowiekowi.
+- Gdy `sowa check` zgłasza oczekujące zatwierdzenia albo nieprzejrzane opisy, wypisz je człowiekowi w podsumowaniu pracy.

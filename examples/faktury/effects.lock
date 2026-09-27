@@ -1,0 +1,11 @@
+# Szkic formatu. Generuje `sowa review`, nie edytuj ręcznie.
+# Funkcje z efektami, które w sowa.toml mają approve = true.
+# Nowa funkcja z takim efektem albo zmiana jej sygnatury lub efektów wymaga ponownego zatwierdzenia.
+# Plik należy do właściciela w CODEOWNERS: agent może przygotować wpis, ale PR wymaga zgody człowieka.
+# funkcja                plik                 efekty                        hash    kto                    zatwierdzone
+issue_invoice            src/issuing.sowa     Db.read, Db.write, Clock      a41f09  recenzent@example.com  2026-09-27
+save_with_next_number    src/numbering.sowa   Db.read, Db.write             6f1b2e  recenzent@example.com  2026-09-27
+save_invoice             src/numbering.sowa   Db.write                      c29e40  recenzent@example.com  2026-09-27
+mark_paid                src/payments.sowa    Db.write                      b3a6f2  recenzent@example.com  2026-09-27
+pay_from_bank            src/payments.sowa    Db.write                      5d7a18  recenzent@example.com  2026-09-27
+send_invoice             src/sending.sowa     Net                           08ce5a  recenzent@example.com  2026-09-27

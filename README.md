@@ -21,6 +21,7 @@ Z samej sygnatury widać, że funkcja łączy się z siecią, zapisuje do bazy i
 
 - [docs/zalozenia.md](docs/zalozenia.md) – zasady i ustalona składnia
 - [docs/przemyslenia.md](docs/przemyslenia.md) – skąd te decyzje, odrzucone warianty, otwarte pytania, podobne projekty
+- [docs/zatwierdzanie.md](docs/zatwierdzanie.md) – jak człowiek zatwierdza zmiany agenta: `sowa review`, pliki `.lock`, CODEOWNERS
 - [docs/porownanie.md](docs/porownanie.md) – tabele porównawcze z popularnymi językami i z językami ery AI
 - [docs/ocena.md](docs/ocena.md) – szczera ocena: mocne i słabe strony, następny krok
 - [examples/](examples/) – pierwsze przykłady kodu

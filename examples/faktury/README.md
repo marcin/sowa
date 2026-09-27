@@ -10,6 +10,8 @@ Reguły biznesowe są uproszczone na potrzeby przykładu. To ilustracja języka,
 faktury/
   sowa.toml                    katalog główny projektu; ścieżki po doc i why liczą się od docs/
   docs.lock                    hashe sygnatur z chwili przejrzenia opisów (szkic formatu)
+  effects.lock                 zatwierdzone funkcje z efektami Net i Db.write (szkic formatu)
+  .github/CODEOWNERS           *.lock i sowa.toml wymagają zgody właściciela w PR
   src/
     types.sowa                 Percent, Nip, VatRate, ...
     invoice.sowa               Line, Invoice, line_net, totals
@@ -35,6 +37,8 @@ faktury/
 | `src/payments.sowa` | warunek na polu w typie parametru: `Invoice(α.status == Issued)` |
 | `docs/decyzje/001-vat-od-sumy-w-stawce.md` | przykład z trzema pozycjami po 0,33 zł jako blok `sowa`: test, który pilnuje decyzji, leży przy jej opisie |
 | `sowa.toml` | sekcja `[limits]`: ile linii `desc` i ile przykładów może stać przy kodzie |
+| `effects.lock`, `.github/CODEOWNERS` | zatwierdzanie: `sowa review` zapisuje, kto i kiedy zatwierdził, a CODEOWNERS pilnuje, żeby zrobił to człowiek |
+| `sowa.toml` | sekcja `[effects]`: jakie efekty są dozwolone w projekcie, w których plikach i co musi mieć funkcja z `Net` albo `Db.write` |
 | `docs/uzytkownik/faktury.md` | odnośniki `{Percent}`, `{issue_invoice}` i bloki `sowa` uruchamiane jako testy |
 | nagłówki plików w `src/` | `desc` i `why zalozenia.md#...` na górze pliku, zamiast komentarza |
 | każda funkcja | trzy grupy oddzielone pustą linią: `effects`, dokumentacja (`desc`, `doc`, `why`, `example`), kod |

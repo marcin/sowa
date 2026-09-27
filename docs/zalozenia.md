@@ -121,6 +121,102 @@ fn send_receipt(email: Email, receipt: Receipt)
 
 Reguła jest jedna: jeśli wywołujesz funkcję z efektem, musisz ten efekt zadeklarować u siebie. Agent nie przemyci wywołania sieci w funkcji, która miała tylko czytać z bazy.
 
+#### Ograniczenia w `sowa.toml`
+
+`effects` przy funkcji mówi, co funkcja robi. Sekcja `[effects]` w `sowa.toml` mówi, na co projekt w ogóle pozwala. Sprawdza ją `sowa check`:
+
+```toml
+[effects]
+allowed = ["Db.read", "Db.write", "Clock", "Net"]
+
+[effects.files]
+"src/issuing.sowa" = ["Db.read", "Db.write", "Clock"]
+"src/sending.sowa" = ["Net"]
+
+[effects.rules.Net]
+why     = true
+approve = true
+```
+
+| Klucz | Co znaczy |
+|---|---|
+| `allowed` | efekty, które mogą wystąpić w projekcie; każdy inny to błąd |
+| `files` | w których plikach wolno użyć których efektów; plik, którego nie ma na liście, musi być czysty |
+| `rules.<efekt>.why` | funkcja z tym efektem musi mieć `why` |
+| `rules.<efekt>.approve = true` | funkcja, która dostaje ten efekt, czeka na zatwierdzenie przez człowieka (zob. niżej); zatwierdzenie obejmuje sygnaturę i efekty |
+| `rules.<efekt>.approve = "body"` | jak wyżej, ale ponowne zatwierdzenie także po każdej zmianie ciała funkcji |
+
+```
+błąd: src/invoice.sowa: totals ma efekt Db.read, a w sowa.toml ten plik ma być czysty
+błąd: efekt Random nie jest dozwolony w projekcie (sowa.toml, [effects] allowed)
+błąd: send_invoice ma efekt Net, więc musi mieć why (sowa.toml, [effects.rules.Net])
+ostrzeżenie: notify_buyer dostała efekt Net i czeka na zatwierdzenie (sowa review)
+```
+
+Bez sekcji `[effects]` projekt nie ma ograniczeń poza regułą z sygnatur.
+
+To przesuwa założenie z poziomu „opisowe” na „sprawdzane”. Zdanie „sieć tylko przy wysyłce” w `.md` może się zdezaktualizować, a wpis w `sowa.toml` nie. `approve` łączy się z zasadą nadrzędną: agent może dopisać funkcję, która zapisuje do bazy albo łączy się z siecią, ale nie wejdzie ona bez zgody człowieka.
+
+#### Zatwierdzanie: `sowa review`
+
+Uzasadnienie i porównanie z innymi narzędziami: [zatwierdzanie.md](zatwierdzanie.md).
+
+Zatwierdzanie działa w trzech krokach. Tak samo zatwierdza się opisy z `docs.lock` (punkt 5 w [Co sprawdza kompilator](#co-sprawdza-kompilator)).
+
+**1. `sowa check` pokazuje, co czeka.** Lokalnie to ostrzeżenie, żeby nie blokować pracy. W CI (`sowa check --ci`) to błąd.
+
+```
+ostrzeżenie: notify_buyer (src/sending.sowa:21) dostała efekt Net i czeka na zatwierdzenie
+             uruchom: sowa review
+```
+
+**2. Człowiek przegląda przez `sowa review`.** Polecenie jest interaktywne i pokazuje po kolei wszystko, co czeka, razem z tym, czego potrzeba do decyzji: sygnaturę, efekty, `desc`, treść sekcji z `why` i miejsca wywołania.
+
+```
+$ sowa review
+
+[1/1] notify_buyer  src/sending.sowa:21  (nowa funkcja)
+
+  fn notify_buyer(invoice: Invoice) -> Sent | SendError
+    effects Net                                  ← wymaga zatwierdzenia (sowa.toml)
+
+    desc Wysyła nabywcy przypomnienie o płatności.
+    why decyzje/004-przypomnienia.md             → pokazać? [enter]
+
+  wywoływana z: remind_unpaid (src/payments.sowa:40)
+
+  Zatwierdzić Net dla notify_buyer? [t]ak / [n]ie / [p]omiń
+```
+
+Po zatwierdzeniu w `effects.lock` pojawia się wiersz z hashem, osobą (z `git config user.email`) i datą:
+
+```
+notify_buyer  src/sending.sowa  Net  7e21c4  recenzent@example.com  2026-09-27
+```
+
+**3. Zatwierdzenie egzekwuje review kodu.** Agent też ma terminal, więc może uruchomić `sowa review` albo dopisać wiersz do pliku `.lock`. Sam plik niczego nie gwarantuje. Gwarancję daje to, że pliki `*.lock` i `sowa.toml` należą do właściciela w CODEOWNERS:
+
+```
+# .github/CODEOWNERS
+sowa.toml   @marcin
+*.lock      @marcin
+```
+
+- Agent może przygotować wpis, ale PR nie wejdzie bez zgody właściciela.
+- Diff pliku `.lock` jest listą kontrolną dla recenzenta: widać w nim dokładnie, co się zatwierdza („notify_buyer: Net”).
+- Agent nie poluzuje też polityki w `sowa.toml` (`allowed`, `files`, `rules`) bez zgody człowieka.
+- W AGENTS.md projektu jest reguła, że agent nie uruchamia `sowa review` i nie edytuje plików `*.lock`, a gdy `sowa check` zgłasza oczekujące zatwierdzenia, przekazuje je człowiekowi.
+
+Bez PR, gdy ktoś pracuje sam z agentem, można włączyć podpisywanie wpisów kluczem SSH, tak jak podpisuje się commity w gicie:
+
+```toml
+[review]
+approvers = ["recenzent@example.com"]
+sign      = true
+```
+
+`sowa review` podpisuje wtedy każdy wpis, a `sowa check --ci` sprawdza podpis na liście `approvers`. Agent nie ma klucza, jeśli klucz jest chroniony hasłem albo sprzętowo. To opcja, a nie domyślne zachowanie, bo wymaga konfiguracji.
+
 ### Błędy
 
 Możliwe błędy są częścią typu wyniku i zapisuje się je przez `|`.

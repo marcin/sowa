@@ -17,17 +17,15 @@ Kreski i spacje usuwamy przy wejściu ({read_nip}), a w systemie trzymamy tylko 
 
 ## Obliczenia i efekty
 
-Obliczenia są czyste, a efekty siedzą w kilku wyznaczonych plikach:
+Obliczenia są czyste, a efekty siedzą w kilku wyznaczonych plikach. Dzięki temu logikę faktury (sumy, VAT, rabaty) da się testować bez bazy i sieci, a recenzent wie, gdzie szukać zapisów i wysyłki.
 
-| Plik | Efekty |
-|---|---|
-| `src/types.sowa`, `src/invoice.sowa` | brak |
-| `src/numbering.sowa` | `Db.read`, `Db.write` |
-| `src/issuing.sowa` | `Db.read`, `Db.write`, `Clock` |
-| `src/payments.sowa` | `Db.write` |
-| `src/sending.sowa` | `Net` |
+Które pliki mogą mieć jakie efekty, zapisaliśmy w `sowa.toml` w sekcji `[effects]`, więc pilnuje tego kompilator, a nie ten opis. Tu jest tylko uzasadnienie:
 
-Nowy efekt w innym pliku to zmiana tego założenia i trzeba ją opisać tutaj.
+- `Net` tylko w `src/sending.sowa`, bo wysyłka jest osobnym krokiem ([decyzja 003](decyzje/003-wysylka-osobno.md)).
+- `Clock` tylko w `src/issuing.sowa`: datę odczytujemy raz, przy wystawieniu, a dalej przekazujemy ją jako zwykłą wartość.
+- Każda nowa funkcja, która zapisuje do bazy albo łączy się z siecią, wymaga zatwierdzenia przez człowieka (`approve = true`, lista w `effects.lock`). Zatwierdza się przez `sowa review`, a PR ze zmianą w `effects.lock` wymaga zgody właściciela z `.github/CODEOWNERS`.
+
+Nowy efekt albo nowy plik z efektami to zmiana tego założenia: trzeba poprawić `sowa.toml` i opisać to tutaj.
 
 ## Błędy
 

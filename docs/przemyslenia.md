@@ -89,6 +89,17 @@ Ogólna lekcja: skróty w stylu Ruby'ego sprawdzają się w zwykłym kodzie, ale
   - Cucumber / Gherkin: specyfikacja w języku naturalnym wykonywana jako testy.
 
   Wykrywania nieaktualnego opisu po zmianie sygnatury (`docs.lock`) nie znaleźliśmy w takiej formie nigdzie. To może być wyróżnik Sowy.
+- **Ograniczenia efektów w `sowa.toml`.** Deklaracja `effects` przy funkcji mówi, co funkcja robi, ale nie mówi, czy to w ogóle wolno. Sekcja `[effects]` w `sowa.toml` ustala politykę projektu: jakie efekty są dozwolone, w których plikach i czego wymagają (`why`, zatwierdzenie przez człowieka). Tabela „który plik ma jakie efekty” w `.md` była opisem, który mógł się rozjechać z kodem, a teraz sprawdza ją kompilator. Podobne pomysły: uprawnienia w Deno (`--allow-net`), `capabilities` w AILANG i Mog, reguły warstw w ArchUnit.
+
+  Zatwierdzanie (`approve`) rozważaliśmy na trzech poziomach (całość w [zatwierdzanie.md](zatwierdzanie.md)):
+
+  | Sposób | Ocena |
+  |---|---|
+  | sam plik `.lock` zapisywany przez `sowa review` | wygodne, ale agent może uruchomić polecenie albo dopisać wiersz sam |
+  | podpis kluczem SSH | mocne, ale wymaga konfiguracji; zostaje jako opcja `[review] sign = true` |
+  | **`.lock` + CODEOWNERS na `*.lock` i `sowa.toml`** | **wybrane jako domyślne**: korzysta z review PR, który zespół i tak robi, a diff pliku `.lock` jest listą kontrolną dla recenzenta |
+
+  Hash w `effects.lock` obejmuje sygnaturę i efekty, a nie ciało: zatwierdza się „ta funkcja może łączyć się z siecią”, a nie każdą zmianę w jej kodzie. Ostrzejszy wariant to `approve = "body"`.
 - **Ruby: składnia tak, semantyka nie.** Z Ruby'ego warto wziąć brak średników i lekkość zapisu. Nie bierzemy monkey-patchingu, `method_missing`, metaprogramowania ani DSL-i, w których nie wiadomo, skąd bierze się metoda. Tą drogą poszły już Elixir (składnia z Ruby'ego, semantyka z Erlanga) i Crystal.
 - **Jawne zamiast skrótów:**
   - `unless x` → `if not x`
@@ -166,6 +177,10 @@ Izolowane procesy z supervisorem. Stan `observable` jest odpytywalny na żywo.
 - **Bloki:** wcięcia (jak w przykładach), `{ }` czy `do ... end`? W rozmowie pojawiały się wszystkie trzy.
 - **Błędy:** tylko typowane warianty (`InvalidDiscount`) czy także `error("tekst")`? Przykłady używają wariantów, bo tak działa `match`.
 - **Efekty:** jaka jest granulacja (`Db`, `Db.read`, `Db.write`)? Czy `Db.write` obejmuje `Db.read`? Czy można tworzyć własne efekty?
+- **`[effects]` w `sowa.toml`:**
+  - wzorce ścieżek (`"src/db/*"`) czy tylko pojedyncze pliki?
+  - więcej reguł: `rules.Net.errors = true` (wynik musi zawierać błąd, bo sieć zawodzi) wymaga odróżnienia typów błędów od zwykłych wariantów; `rules."Db.write".requires = ["Audit"]` (każdy zapis musi też logować)?
+  - zatwierdzanie: pytania w [zatwierdzanie.md](zatwierdzanie.md#otwarte-pytania).
 - **Weryfikacja:** co sprawdzać statycznie (solver, np. Z3), a co w runtime? Jak daleko idzie wnioskowanie po `if` (czy `if input >= 0 && input <= 100` wystarczy do `Percent(input)`)?
 - **`α` w typach złożonych:** jak zapisać warunek na polu wewnątrz typu z warunkiem, np. `Order(α.items: List(len(α) > 0))`? Który `α` jest który?
 - **Liczby:** czy `Money` to decimal? Jak działa dzielenie i zaokrąglanie w `total * pct / 100`?
@@ -174,7 +189,7 @@ Izolowane procesy z supervisorem. Stan `observable` jest odpytywalny na żywo.
 - **`or` z wartością domyślną:** czy `input as Percent or 0` nie połyka po cichu błędnych danych? Może dopuszczać tylko `return` i blok.
 - **Wartości limitów:** czy 3 linie `desc`, 3 przykłady i 5 linii na przykład to dobre wartości domyślne? Sprawdzić na większym kodzie.
 - **`example` w grupie dokumentacji:** czy przykłady nie powinny być osobną, czwartą grupą? Przy wielu przykładach grupa dokumentacji robi się długa.
-- **`docs.lock`:** jaki format i jakie polecenie zatwierdza opis (np. `sowa docs review`)? Czy hash obejmuje też ciało funkcji, czy tylko sygnaturę, warunki i efekty?
+- **`docs.lock`:** jaki ostateczny format? Zatwierdzanie opisane w [zatwierdzanie.md](zatwierdzanie.md), tam też kolejne otwarte pytania.
 - **Renderowanie `{Percent}`:** w jakim języku (polski, angielski)? Skąd brać tłumaczenia? Jak wyrenderować warunek z wywołaniem funkcji, np. `{Nip}` z `nip_checksum_ok(α)`? Może wtedy brać `desc` typu.
 - **Z przykładowego projektu [faktury](../examples/faktury/):**
   - typy z polami: `type Line` z polami w bloku z wcięciem?
