@@ -1,11 +1,13 @@
-// sowa check | build | run [--fake NAZWA] | test  [KATALOG]
+// sowa check | build | run [--fake NAZWA] | test [--rust]  [KATALOG]
 //
 // Kompilator czyta projekt (sowa.toml, src/, impl/, docs/), sprawdza go i tłumaczy na jeden
-// plik JavaScript w <projekt>/.sowa/, który uruchamia Bun.
+// plik JavaScript w <projekt>/.sowa/, który uruchamia Bun. `sowa test --rust` zamiast tego
+// tłumaczy testy na Rusta i kompiluje je rustc do pliku wykonywalnego.
 
 mod ast;
 mod check;
 mod codegen;
+mod codegen_rs;
 mod env;
 mod lexer;
 mod parser;
@@ -22,7 +24,8 @@ polecenia:
   check                 sprawdza projekt: typy, sygnatury, uprawnienia, dokumentację
   build                 sprawdza i zapisuje program w .sowa/app.js
   run [--fake ZASÓB]    buduje i uruchamia program; --fake podmienia zasób na ten z [resources.test]
-  test                  uruchamia przykłady, property i bloki sowa z docs/
+  test [--rust]         uruchamia przykłady, property i bloki sowa z docs/;
+                        --rust kompiluje testy do Rusta zamiast JS dla Buna
 
 KATALOG to katalog projektu albo dowolny katalog pod nim (domyślnie bieżący).";
 
@@ -33,6 +36,7 @@ fn main() -> ExitCode {
         return ExitCode::from(2);
     };
     let mut fakes = vec![];
+    let mut rust = false;
     let mut dir = None;
     let mut i = 1;
     while i < args.len() {
@@ -43,6 +47,7 @@ fn main() -> ExitCode {
                 continue;
             }
             a if a.starts_with("--fake=") => fakes.push(a["--fake=".len()..].to_string()),
+            "--rust" => rust = true,
             a if a.starts_with('-') => {
                 eprintln!("nieznana opcja {}\n\n{}", a, USAGE);
                 return ExitCode::from(2);
@@ -67,7 +72,11 @@ fn main() -> ExitCode {
         eprintln!("--fake działa tylko z sowa run");
         return ExitCode::from(2);
     }
-    match run(&cmd, &dir, &fakes) {
+    if rust && cmd != "test" {
+        eprintln!("--rust działa tylko z sowa test");
+        return ExitCode::from(2);
+    }
+    match run(&cmd, &dir, &fakes, rust) {
         Ok(code) => code,
         Err(msg) => {
             eprintln!("{}", msg);
@@ -82,7 +91,7 @@ fn print_diags(kind: &str, ds: &[Diag]) {
     }
 }
 
-fn run(cmd: &str, dir: &Path, fakes: &[String]) -> Result<ExitCode, String> {
+fn run(cmd: &str, dir: &Path, fakes: &[String], rust: bool) -> Result<ExitCode, String> {
     let root = project::find_root(dir).ok_or_else(|| format!("nie ma sowa.toml w {} ani wyżej", dir.display()))?;
     let proj = match project::load(&root) {
         Ok(p) => p,
@@ -125,6 +134,10 @@ fn run(cmd: &str, dir: &Path, fakes: &[String]) -> Result<ExitCode, String> {
 
     let out_dir = root.join(".sowa");
     std::fs::create_dir_all(&out_dir).map_err(|e| format!("{}: {}", out_dir.display(), e))?;
+    if rust {
+        let program = codegen_rs::Gen::new(&env).tests_program(&proj, &test_res);
+        return run_rust(&root, &out_dir, &format!("{}\n// ---- program ----\n{}", include_str!("runtime.rs"), program));
+    }
     let root_js = codegen::js_str(&proj.root.to_string_lossy());
     let (file, js) = if cmd == "test" {
         let spec = resources_json(&proj, "resources.test", &[])?;
@@ -158,6 +171,33 @@ fn run(cmd: &str, dir: &Path, fakes: &[String]) -> Result<ExitCode, String> {
     Ok(if status.success() { ExitCode::SUCCESS } else { ExitCode::FAILURE })
 }
 
+// Kompiluje testy tylko wtedy, gdy kod się zmienił, i uruchamia je w katalogu projektu.
+fn run_rust(root: &Path, out_dir: &Path, src: &str) -> Result<ExitCode, String> {
+    let file = out_dir.join("test_rs.rs");
+    let exe = out_dir.join("test_rs");
+    let fresh = exe.is_file() && std::fs::read_to_string(&file).is_ok_and(|old| old == src);
+    if !fresh {
+        std::fs::write(&file, src).map_err(|e| format!("{}: {}", file.display(), e))?;
+        let rustc = find_tool("SOWA_RUSTC", "rustc", ".cargo/bin/rustc")
+            .ok_or("nie znaleziono rustc: zainstaluj Rusta (https://rustup.rs) albo podaj ścieżkę w SOWA_RUSTC")?;
+        let status = Command::new(&rustc)
+            .args(["--edition", "2021", "-O", "--crate-name", "sowa_tests", "-o"])
+            .arg(&exe)
+            .arg(&file)
+            .status()
+            .map_err(|e| format!("{}: {}", rustc.display(), e))?;
+        if !status.success() {
+            let _ = std::fs::remove_file(&exe);
+            return Err(format!("rustc nie skompilował {}", file.display()));
+        }
+    }
+    let status = Command::new(&exe)
+        .current_dir(root)
+        .status()
+        .map_err(|e| format!("{}: {}", exe.display(), e))?;
+    Ok(if status.success() { ExitCode::SUCCESS } else { ExitCode::FAILURE })
+}
+
 fn plural(n: usize, one: &str, few: &str, many: &str) -> String {
     let w = if n == 1 {
         one
@@ -170,19 +210,24 @@ fn plural(n: usize, one: &str, few: &str, many: &str) -> String {
 }
 
 fn find_bun() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("SOWA_BUN") {
+    find_tool("SOWA_BUN", "bun", ".bun/bin/bun")
+}
+
+// Program ze zmiennej środowiska, potem z PATH, potem z katalogu domowego.
+fn find_tool(var: &str, name: &str, in_home: &str) -> Option<PathBuf> {
+    if let Ok(p) = std::env::var(var) {
         return Some(PathBuf::from(p));
     }
     if let Ok(path) = std::env::var("PATH") {
         for d in std::env::split_paths(&path) {
-            let p = d.join("bun");
+            let p = d.join(name);
             if p.is_file() {
                 return Some(p);
             }
         }
     }
     let home = std::env::var("HOME").ok()?;
-    let p = Path::new(&home).join(".bun/bin/bun");
+    let p = Path::new(&home).join(in_home);
     p.is_file().then_some(p)
 }
 

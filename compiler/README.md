@@ -10,11 +10,14 @@ Nie ma solvera, `sowa review` ani mutacji. Warunki w typach kompilator sprawdza 
 cargo build --manifest-path compiler/Cargo.toml
 sowa check [KATALOG]               # sprawdza projekt
 sowa test [KATALOG]                # przykłady, property (po 100 przypadków) i bloki sowa z docs/
+sowa test --rust [KATALOG]         # to samo, ale testy są kompilowane do Rusta
 sowa build [KATALOG]               # zapisuje program w KATALOG/.sowa/app.js
 sowa run [--fake ZASÓB] [KATALOG]  # buduje i uruchamia
 ```
 
 `KATALOG` to katalog z `sowa.toml` albo dowolny katalog pod nim. `--fake ksef` bierze opis zasobu `ksef` z `[resources.test]`, czyli atrapę. Bun jest szukany w `SOWA_BUN`, potem w `PATH`, potem w `~/.bun/bin/bun`.
+
+`sowa test --rust` tłumaczy program i testy na jeden plik `.sowa/test_rs.rs`, kompiluje go `rustc -O` do `.sowa/test_rs` i uruchamia. Wynik i komunikaty są takie same jak z Buna, łącznie z wylosowanymi przypadkami property. Kompilacja jest pomijana, gdy kod się nie zmienił. SQLite pochodzi z systemowej biblioteki `libsqlite3`. `rustc` jest szukany w `SOWA_RUSTC`, potem w `PATH`, potem w `~/.cargo/bin/rustc`. Ten backend obsługuje tylko testy, więc nie ma w nim serwera ani prawdziwego `Http`, tylko atrapę.
 
 ## Pliki
 
@@ -27,6 +30,8 @@ sowa run [--fake ZASÓB] [KATALOG]  # buduje i uruchamia
 | `src/check.rs` | reguły projektu (niżej) |
 | `src/codegen.rs` | JavaScript: typy jako opisy w runtime, funkcje jako `async function`, testy |
 | `src/runtime.js` | runtime doklejany na początek programu: wartości, typy, JSON, formularze, baza, HTTP, serwer, testy |
+| `src/codegen_rs.rs` | Rust dla `sowa test --rust`: funkcje jako `fn(V) -> R`, błędy przez `?`, lambdy jako domknięcia |
+| `src/runtime.rs` | runtime dla Rusta, doklejany na początek `test_rs.rs` (nie jest modułem crate'a): te same wartości, typy, JSON, baza przez FFI do SQLite, generator property i raport |
 
 ## Co sprawdza `sowa check`
 
