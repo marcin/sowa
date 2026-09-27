@@ -1,4 +1,4 @@
-// sowa check | build [--rust] | run [--fake NAZWA] [--rust] | test [--rust]  [KATALOG]
+// sowa check | build [--rust] | run [--fake NAZWA] [--rust] | test [--rust]  [--panic-abort] [KATALOG]
 //
 // Kompilator czyta projekt (sowa.toml, src/, impl/, docs/), sprawdza go i tłumaczy na jeden
 // plik JavaScript w <projekt>/.sowa/, który uruchamia Bun. Z --rust zamiast tego tłumaczy
@@ -28,6 +28,8 @@ polecenia:
   test [--rust]         uruchamia przykłady, property i bloki sowa z docs/
 
 --rust kompiluje do Rusta (rustc) zamiast do JS dla Buna.
+--panic-abort (z --rust) przy panice kończy program od razu, bez sprzątania. Program jest ok. 2%
+  szybszy i ok. 10% mniejszy. Przy serwerze panika w jednym żądaniu zatrzymałaby cały serwer.
 
 KATALOG to katalog projektu albo dowolny katalog pod nim (domyślnie bieżący).";
 
@@ -39,6 +41,7 @@ fn main() -> ExitCode {
     };
     let mut fakes = vec![];
     let mut rust = false;
+    let mut panic_abort = false;
     let mut dir = None;
     let mut i = 1;
     while i < args.len() {
@@ -50,6 +53,7 @@ fn main() -> ExitCode {
             }
             a if a.starts_with("--fake=") => fakes.push(a["--fake=".len()..].to_string()),
             "--rust" => rust = true,
+            "--panic-abort" => panic_abort = true,
             a if a.starts_with('-') => {
                 eprintln!("nieznana opcja {}\n\n{}", a, USAGE);
                 return ExitCode::from(2);
@@ -74,7 +78,11 @@ fn main() -> ExitCode {
         eprintln!("--fake działa tylko z sowa run");
         return ExitCode::from(2);
     }
-    match run(&cmd, &dir, &fakes, rust) {
+    if panic_abort && !rust {
+        eprintln!("--panic-abort działa tylko z --rust");
+        return ExitCode::from(2);
+    }
+    match run(&cmd, &dir, &fakes, rust, panic_abort) {
         Ok(code) => code,
         Err(msg) => {
             eprintln!("{}", msg);
@@ -89,7 +97,7 @@ fn print_diags(kind: &str, ds: &[Diag]) {
     }
 }
 
-fn run(cmd: &str, dir: &Path, fakes: &[String], rust: bool) -> Result<ExitCode, String> {
+fn run(cmd: &str, dir: &Path, fakes: &[String], rust: bool, panic_abort: bool) -> Result<ExitCode, String> {
     let root = project::find_root(dir).ok_or_else(|| format!("nie ma sowa.toml w {} ani wyżej", dir.display()))?;
     let proj = match project::load(&root) {
         Ok(p) => p,
@@ -140,7 +148,7 @@ fn run(cmd: &str, dir: &Path, fakes: &[String], rust: bool) -> Result<ExitCode, 
             ("app_rs", codegen_rs::Gen::new(&env).main_program(&proj, fakes))
         };
         let src = format!("{}\n// ---- program ----\n{}", include_str!("runtime.rs"), program);
-        let exe = compile_rust(&out_dir, name, &src)?;
+        let exe = compile_rust(&out_dir, name, &src, panic_abort)?;
         if cmd == "build" {
             println!("{}: zapisano {}", proj.name, exe.display());
             return Ok(ExitCode::SUCCESS);
@@ -188,17 +196,25 @@ fn check_fakes(proj: &project::Project, fakes: &[String]) -> Result<(), String> 
     }
 }
 
-// Kompiluje źródło Rusta do .sowa/<name>, tylko gdy kod się zmienił.
-fn compile_rust(out_dir: &Path, name: &str, src: &str) -> Result<PathBuf, String> {
+// Kompiluje źródło Rusta do .sowa/<name>, tylko gdy kod albo flagi się zmieniły. Jedna jednostka
+// kodu (codegen-units=1) daje LLVM cały program naraz. panic=abort usuwa kod rozwijania stosu,
+// bo błędy Sowy idą przez Result, ale panika kończy wtedy cały proces, a nie tylko jeden wątek.
+fn compile_rust(out_dir: &Path, name: &str, src: &str, panic_abort: bool) -> Result<PathBuf, String> {
     let file = out_dir.join(format!("{}.rs", name));
     let exe = out_dir.join(name);
+    let mut flags = vec!["--edition=2021", "-O", "-C", "codegen-units=1"];
+    if panic_abort {
+        flags.extend(["-C", "panic=abort"]);
+    }
+    let src = format!("// rustc {}\n{}", flags.join(" "), src);
     let fresh = exe.is_file() && std::fs::read_to_string(&file).is_ok_and(|old| old == src);
     if !fresh {
-        std::fs::write(&file, src).map_err(|e| format!("{}: {}", file.display(), e))?;
+        std::fs::write(&file, &src).map_err(|e| format!("{}: {}", file.display(), e))?;
         let rustc = find_tool("SOWA_RUSTC", "rustc", ".cargo/bin/rustc")
             .ok_or("nie znaleziono rustc: zainstaluj Rusta (https://rustup.rs) albo podaj ścieżkę w SOWA_RUSTC")?;
         let status = Command::new(&rustc)
-            .args(["--edition", "2021", "-O", "--crate-name", &format!("sowa_{}", name), "-o"])
+            .args(&flags)
+            .args(["--crate-name", &format!("sowa_{}", name), "-o"])
             .arg(&exe)
             .arg(&file)
             .status()

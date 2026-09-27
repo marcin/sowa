@@ -18,7 +18,9 @@ sowa build --rust / run --rust     # program w Ruście: KATALOG/.sowa/app_rs
 
 `KATALOG` to katalog z `sowa.toml` albo dowolny katalog pod nim. `--fake ksef` bierze opis zasobu `ksef` z `[resources.test]`, czyli atrapę. Bun jest szukany w `SOWA_BUN`, potem w `PATH`, potem w `~/.bun/bin/bun`.
 
-`sowa test --rust` tłumaczy program i testy na jeden plik `.sowa/test_rs.rs`, kompiluje go `rustc -O` do `.sowa/test_rs` i uruchamia. Wynik i komunikaty są takie same jak z Buna, łącznie z wylosowanymi przypadkami property. Kompilacja jest pomijana, gdy kod się nie zmienił. SQLite pochodzi z systemowej biblioteki `libsqlite3`. `rustc` jest szukany w `SOWA_RUSTC`, potem w `PATH`, potem w `~/.cargo/bin/rustc`. `sowa build --rust` i `sowa run --rust` kompilują tak samo `main` do `.sowa/app_rs`. Na razie działają w nim zasoby `Db`, `Clock`, `Random` i `Terminal`. Nie ma serwera ani prawdziwego `Http`, tylko atrapa.
+`sowa test --rust` tłumaczy program i testy na jeden plik `.sowa/test_rs.rs`, kompiluje go `rustc -O -C codegen-units=1` do `.sowa/test_rs` i uruchamia. Wynik i komunikaty są takie same jak z Buna, łącznie z wylosowanymi przypadkami property. Kompilacja jest pomijana, gdy kod się nie zmienił. SQLite pochodzi z systemowej biblioteki `libsqlite3`. `rustc` jest szukany w `SOWA_RUSTC`, potem w `PATH`, potem w `~/.cargo/bin/rustc`. `sowa build --rust` i `sowa run --rust` kompilują tak samo `main` do `.sowa/app_rs`. Na razie działają w nim zasoby `Db`, `Clock`, `Random` i `Terminal`. Nie ma serwera ani prawdziwego `Http`, tylko atrapa.
+
+`--panic-abort` (tylko z `--rust`) dodaje `-C panic=abort`. Program jest wtedy ok. 2% szybszy, a plik wykonywalny ok. 10% mniejszy, bo znika kod rozwijania stosu. Błędy Sowy idą przez `Result` i działają tak samo. Inaczej zachowuje się tylko panika, czyli błąd w kompilatorze albo w runtime: proces kończy się od razu z kodem 134 zamiast 101 i bez sprzątania. Opcja nie jest domyślna, bo po dodaniu serwera w Ruście panika w obsłudze jednego żądania zatrzymałaby z nią cały serwer, a bez niej można ją złapać i odpowiedzieć 500 tylko temu żądaniu.
 
 ## Pliki
 
