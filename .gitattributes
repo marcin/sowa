@@ -1,0 +1,3 @@
+# GitHub nie zna Sowy, więc koloruje .sowa jak Rusta (fn, ->, match, //).
+# Pełne kolorowanie w VS Code daje wtyczka z editors/vscode.
+*.sowa linguist-language=Rust

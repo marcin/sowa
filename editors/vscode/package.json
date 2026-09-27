@@ -1,0 +1,41 @@
+{
+  "name": "sowa",
+  "displayName": "Sowa",
+  "description": "Kolorowanie składni języka Sowa",
+  "version": "0.0.1",
+  "publisher": "sowa",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/marcin/sowa"
+  },
+  "engines": {
+    "vscode": "^1.70.0"
+  },
+  "categories": ["Programming Languages"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "sowa",
+        "aliases": ["Sowa", "sowa"],
+        "extensions": [".sowa"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "sowa",
+        "scopeName": "source.sowa",
+        "path": "./syntaxes/sowa.tmLanguage.json"
+      },
+      {
+        "scopeName": "markdown.sowa.codeblock",
+        "path": "./syntaxes/sowa-markdown.tmLanguage.json",
+        "injectTo": ["text.html.markdown"],
+        "embeddedLanguages": {
+          "meta.embedded.block.sowa": "sowa"
+        }
+      }
+    ]
+  }
+}

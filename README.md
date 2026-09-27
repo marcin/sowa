@@ -26,6 +26,7 @@ Z samej sygnatury widać, że funkcja łączy się z siecią, zapisuje do bazy i
 - [docs/ocena.md](docs/ocena.md) – szczera ocena: mocne i słabe strony, następny krok
 - [examples/](examples/) – pierwsze przykłady kodu
 - [examples/faktury/](examples/faktury/) – przykładowy projekt: kod, dokumentacja dla użytkownika i decyzje
+- [editors/vscode/](editors/vscode/) – kolorowanie składni w VS Code
 
 ## Status
 

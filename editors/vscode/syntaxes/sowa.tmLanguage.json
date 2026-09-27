@@ -1,0 +1,171 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Sowa",
+  "scopeName": "source.sowa",
+  "fileTypes": ["sowa"],
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#desc-block" },
+    { "include": "#desc-line" },
+    { "include": "#doc-link" },
+    { "include": "#effects" },
+    { "include": "#example" },
+    { "include": "#code" }
+  ],
+  "repository": {
+    "comment": {
+      "name": "comment.line.double-slash.sowa",
+      "match": "//.*$"
+    },
+    "desc-block": {
+      "comment": "Samo desc, a pod nim tekst z wcięciem.",
+      "begin": "^(\\s*)(desc)\\s*$",
+      "beginCaptures": {
+        "2": { "name": "keyword.other.documentation.sowa" }
+      },
+      "while": "^(?:\\1\\s+\\S|\\s*$)",
+      "contentName": "string.unquoted.documentation.sowa",
+      "patterns": [{ "include": "#symbol-ref" }]
+    },
+    "desc-line": {
+      "begin": "^\\s*(desc)\\s+",
+      "beginCaptures": {
+        "1": { "name": "keyword.other.documentation.sowa" }
+      },
+      "end": "$",
+      "contentName": "string.unquoted.documentation.sowa",
+      "patterns": [{ "include": "#symbol-ref" }]
+    },
+    "symbol-ref": {
+      "comment": "{Symbol} w desc: odwołanie sprawdzane przez kompilator.",
+      "match": "(\\{)([A-Za-z_][A-Za-z0-9_]*)(\\})",
+      "captures": {
+        "0": { "name": "meta.symbol-reference.sowa" },
+        "1": { "name": "punctuation.definition.symbol.begin.sowa" },
+        "2": { "name": "variable.other.constant.sowa" },
+        "3": { "name": "punctuation.definition.symbol.end.sowa" }
+      }
+    },
+    "doc-link": {
+      "match": "^\\s*(doc|why)\\s+([^\\s#]+)(#\\S+)?\\s*$",
+      "captures": {
+        "1": { "name": "keyword.other.documentation.sowa" },
+        "2": { "name": "markup.underline.link.sowa" },
+        "3": { "name": "markup.underline.link.section.sowa" }
+      }
+    },
+    "effects": {
+      "begin": "^\\s*(effects)\\b",
+      "beginCaptures": {
+        "1": { "name": "keyword.other.effects.sowa" }
+      },
+      "end": "$",
+      "patterns": [
+        { "include": "#comment" },
+        {
+          "name": "support.class.effect.sowa",
+          "match": "\\b[A-Z][A-Za-z0-9_]*(?:\\.[a-z][A-Za-z0-9_]*)?\\b"
+        },
+        { "name": "punctuation.separator.comma.sowa", "match": "," }
+      ]
+    },
+    "example": {
+      "match": "^\\s*(example)\\b",
+      "captures": {
+        "1": { "name": "keyword.other.documentation.sowa" }
+      }
+    },
+    "code": {
+      "patterns": [
+        { "include": "#comment" },
+        { "include": "#string" },
+        { "include": "#number" },
+        { "include": "#fn-def" },
+        { "include": "#type-def" },
+        { "include": "#keyword" },
+        { "include": "#alpha" },
+        { "include": "#type-name" },
+        { "include": "#call" },
+        { "include": "#named-arg" },
+        { "include": "#operator" }
+      ]
+    },
+    "fn-def": {
+      "match": "\\b(fn)\\s+([a-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "storage.type.function.sowa" },
+        "2": { "name": "entity.name.function.sowa" }
+      }
+    },
+    "type-def": {
+      "match": "^\\s*(type)\\s+([A-Z][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "storage.type.type.sowa" },
+        "2": { "name": "entity.name.type.sowa" }
+      }
+    },
+    "keyword": {
+      "patterns": [
+        {
+          "name": "keyword.control.sowa",
+          "match": "\\b(return|match|if|else|for|in|try)\\b"
+        },
+        {
+          "name": "keyword.operator.word.sowa",
+          "match": "\\b(as|or|is|not|with)\\b"
+        },
+        {
+          "name": "storage.modifier.var.sowa",
+          "match": "\\bvar\\b"
+        },
+        {
+          "name": "constant.language.boolean.sowa",
+          "match": "\\b(true|false)\\b"
+        }
+      ]
+    },
+    "alpha": {
+      "comment": "α: wartość, której dotyczy warunek w typie.",
+      "name": "variable.language.alpha.sowa",
+      "match": "α"
+    },
+    "type-name": {
+      "name": "entity.name.type.sowa",
+      "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+    },
+    "call": {
+      "match": "\\b([a-z_][A-Za-z0-9_]*)(?=\\()",
+      "captures": {
+        "1": { "name": "entity.name.function.call.sowa" }
+      }
+    },
+    "named-arg": {
+      "match": "\\b([a-z_][A-Za-z0-9_]*)(?=:\\s)",
+      "captures": {
+        "1": { "name": "variable.parameter.sowa" }
+      }
+    },
+    "string": {
+      "name": "string.quoted.double.sowa",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        { "name": "constant.character.escape.sowa", "match": "\\\\." }
+      ]
+    },
+    "number": {
+      "name": "constant.numeric.sowa",
+      "match": "\\b\\d+(?:\\.\\d+)?\\b"
+    },
+    "operator": {
+      "patterns": [
+        { "name": "keyword.operator.arrow.sowa", "match": "->|=>" },
+        { "name": "keyword.operator.logical.sowa", "match": "&&|\\|\\||!" },
+        { "name": "keyword.operator.comparison.sowa", "match": "==|!=|>=|<=|>|<" },
+        { "name": "keyword.operator.union.sowa", "match": "\\|" },
+        { "name": "keyword.operator.arithmetic.sowa", "match": "[+\\-*/%]" },
+        { "name": "keyword.operator.assignment.sowa", "match": "=" }
+      ]
+    }
+  }
+}
