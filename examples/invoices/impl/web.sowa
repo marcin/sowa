@@ -1,0 +1,105 @@
+fn route(method: Method, path: String) -> Route
+  // Dopasowanie do listy segmentów i `_` to otwarte pytania. Zob. docs/przemyslenia.md
+  // w repozytorium Sowy, sekcja „Aplikacja webowa”.
+  match method, segments(path)
+    Get,  ["invoices", "new"] => return NewInvoice
+    Post, ["invoices"]        => return CreateInvoice
+    Get,  ["invoices", year, seq] =>
+      number = try read_number(year, seq)
+      return ShowInvoice(number: number)
+    Post, ["invoices", year, seq, "send"] =>
+      number = try read_number(year, seq)
+      return SendInvoice(number: number)
+    _ => return UnknownPath
+
+// Prywatna: rok i kolejny numer z adresu. Litery albo numer 0 to nieznany adres.
+fn read_number(year: String, seq: String) -> InvoiceNumber | UnknownPath
+  y = parse_int(year) as Int(α >= 2000) or return UnknownPath
+  s = parse_int(seq) as Int(α > 0) or return UnknownPath
+  return format_number(y, s)
+
+fn invoice_path(number: InvoiceNumber) -> String
+  return "/invoices/" + drop_prefix(number, "FV/")
+
+fn handle(req: Request, db: Db, clock: Clock, mail: Mailer) -> Response
+  match route(req.method, req.path)
+    NewInvoice      => return Ok(body: form_page(empty_form(), []))
+    CreateInvoice   => return post_invoice(req, db, clock)
+    ShowInvoice r   => return get_invoice(r.number, db)
+    SendInvoice r   => return post_send(r.number, db, mail)
+    UnknownPath     => return NotFound(body: not_found_page())
+
+fn post_invoice(req: Request, db: Db, clock: Clock) -> Response
+  // `as` z tekstu na rekord: odczyt formularza to otwarte pytanie.
+  form = req.body as InvoiceForm or
+    return BadRequest(body: form_page(empty_form(), ["Nie udało się odczytać formularza."]))
+  match issue_invoice(form, db, clock)
+    Invoice i    => return Redirect(to: invoice_path(i.number))
+    IssueError e => return BadRequest(body: form_page(form, [error_message(e)]))
+
+fn get_invoice(number: InvoiceNumber, db: DbRead) -> Response
+  match find_invoice(number, db)
+    Invoice i => return Ok(body: invoice_page(i))
+    NoInvoice => return NotFound(body: not_found_page())
+
+fn post_send(number: InvoiceNumber, db: DbRead, mail: Mailer) -> Response
+  invoice = find_invoice(number, db) as Invoice or return NotFound(body: not_found_page())
+  match send_invoice(invoice, mail)
+    Sent        => return Redirect(to: invoice_path(number))
+    SendError e => return Unavailable(body: layout("Błąd wysyłki", html"<p>{error_message(e)}</p>"))
+
+fn find_invoice(number: InvoiceNumber, db: DbRead) -> Invoice | LookupError
+  // ciało pominięte w przykładzie: API zapytań do bazy to otwarte pytanie
+
+// Prywatna: pusty formularz dla GET /invoices/new.
+fn empty_form() -> InvoiceForm
+  return InvoiceForm(buyer_name: "", buyer_nip: "", buyer_email: "", discount: 0, lines: [])
+
+// Prywatna: wspólny szkielet strony.
+fn layout(title: String, content: Html) -> Html
+  return html"
+    <!doctype html>
+    <title>{title}</title>
+    <main>{content}</main>
+    "
+
+fn form_page(form: InvoiceForm, messages: List<String>) -> Html
+  errors = messages.map(m => html"<li>{m}</li>")
+  return layout("Nowa faktura", html"
+    <ul class="errors">{errors}</ul>
+    <form method="post" action="/invoices">
+      <input name="buyer_name" value="{form.buyer_name}">
+      <input name="buyer_nip" value="{form.buyer_nip}">
+      <input name="buyer_email" value="{form.buyer_email}">
+      <input name="discount" value="{form.discount}">
+      <button>Wystaw fakturę</button>
+    </form>
+    ")
+  // pozycje faktury pominięte w przykładzie
+
+fn invoice_page(invoice: Invoice) -> Html
+  t = totals(invoice.lines, invoice.discount)
+  rows = invoice.lines.map(l => html"<tr><td>{l.name}</td><td>{l.quantity}</td><td>{l.unit_net}</td></tr>")
+  return layout("Faktura " + invoice.number, html"
+    <h1>Faktura {invoice.number}</h1>
+    <p>{invoice.buyer.name}, NIP {invoice.buyer.nip}</p>
+    <table>{rows}</table>
+    <p>Netto {t.net} zł, VAT {t.vat} zł, brutto {t.gross} zł</p>
+    <form method="post" action="{invoice_path(invoice.number)}/send">
+      <button>Wyślij do {invoice.buyer.email}</button>
+    </form>
+    ")
+
+fn not_found_page() -> Html
+  return layout("Nie ma takiej strony", html"<p>Nie ma takiej strony.</p>")
+
+fn error_message(error: IssueError | SendError) -> String
+  match error
+    InvalidBuyer    => return "Podaj nazwę nabywcy."
+    InvalidNip      => return "Nieprawidłowy NIP."
+    InvalidEmail    => return "Nieprawidłowy adres e-mail."
+    InvalidDiscount => return "Rabat musi być od 0 do 100%."
+    EmptyInvoice    => return "Faktura musi mieć co najmniej jedną pozycję."
+    NumberingFailed => return "Nie udało się nadać numeru. Spróbuj ponownie."
+    MailRejected    => return "Serwer poczty odrzucił wiadomość."
+    MailTimeout     => return "Serwer poczty nie odpowiada. Spróbuj ponownie."

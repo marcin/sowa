@@ -24,13 +24,14 @@ Jakie zasoby ma program, stoi w `sowa.toml` w sekcji `[resources]`. Runtime prze
 - `Mailer` dostaje tylko {send_invoice}, bo wysyłka jest osobnym krokiem ([decyzja 003](decyzje/003-wysylka-osobno.md)).
 - `Clock` dostaje tylko {issue_invoice}: datę odczytuje się raz, przy wystawieniu, a dalej przekazuje jako zwykłą wartość.
 - Funkcje, które tylko czytają z bazy, dostają `DbRead` zamiast `Db`, np. {last_invoice_seq}.
+- W aplikacji webowej komplet uprawnień ma tylko {handle}. Dalej każdy adres dostaje tylko to, czego potrzebuje: zapis formularza ({post_invoice}) nie dostaje `Mailer`, a strona faktury ({get_invoice}) dostaje tylko `DbRead`.
 
 Nowy zasób albo nowa funkcja w `src/` z uprawnieniem to zmiana tego założenia. `sowa review` pokazuje ją na samej górze, a PR wymaga zgody właściciela z `.github/CODEOWNERS`.
 
 ## Błędy
 
 - Każdy błąd, który może zobaczyć użytkownik, jest wariantem w typie wyniku (`IssueError`, `PaymentError`, `SendError`). Nie ma wyjątków.
-- Błąd niesie tylko informację, co poszło nie tak. Treść komunikatu dla użytkownika powstaje w interfejsie, nie w logice.
+- Błąd niesie tylko informację, co poszło nie tak. Treść komunikatu dla użytkownika powstaje w interfejsie, nie w logice: w {error_message} w `src/web.sowa`.
 - Dane z formularza zamieniamy na typy z warunkami (`as ... or return`) na samym początku, w `src/issuing.sowa`. Dalej kod pracuje już na sprawdzonych wartościach.
 
 ## Poza zakresem
