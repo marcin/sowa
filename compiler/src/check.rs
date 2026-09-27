@@ -348,7 +348,7 @@ impl<'a> Ck<'a> {
                 );
             }
             if let Some((_, f)) = info.imp {
-                if !self.p.codeowners.iter().any(|pat| glob_match(pat, &f.path)) {
+                if !self.p.codeowners.iter().any(|(pat, _)| glob_match(pat, &f.path)) {
                     self.err(
                         &f.path,
                         0,

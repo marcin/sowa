@@ -9,6 +9,8 @@ use std::path::{Path, PathBuf};
 pub struct MdFile {
     pub rel: String,
     pub anchors: Vec<String>,
+    // (kotwica, linia nagłówka) w kolejności z pliku
+    pub headings: Vec<(String, usize)>,
     pub refs: Vec<(String, usize)>,
     // (linia pierwszej linii kodu, kod)
     pub blocks: Vec<(usize, String)>,
@@ -23,7 +25,8 @@ pub struct Project {
     pub docs_dir: String,
     pub files: Vec<SourceFile>,
     pub docs: Vec<MdFile>,
-    pub codeowners: Vec<String>,
+    // (wzorzec ścieżki, właściciele) z CODEOWNERS
+    pub codeowners: Vec<(String, Vec<String>)>,
     pub gitattributes: Vec<(String, Vec<String>)>,
 }
 
@@ -104,7 +107,11 @@ pub fn load(root: &Path) -> Result<Project, Vec<Diag>> {
             s.lines()
                 .map(|l| l.trim())
                 .filter(|l| !l.is_empty() && !l.starts_with('#'))
-                .filter_map(|l| l.split_whitespace().next().map(|x| x.to_string()))
+                .filter_map(|l| {
+                    let mut it = l.split_whitespace();
+                    let pat = it.next()?.to_string();
+                    Some((pat, it.map(|x| x.to_string()).collect()))
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -156,6 +163,7 @@ fn read_md(rel: &str, src: &str) -> MdFile {
     let mut md = MdFile {
         rel: rel.to_string(),
         anchors: vec![],
+        headings: vec![],
         refs: vec![],
         blocks: vec![],
     };
@@ -182,6 +190,7 @@ fn read_md(rel: &str, src: &str) -> MdFile {
         if t.starts_with('#') {
             let title = t.trim_start_matches('#');
             md.anchors.push(slug(title));
+            md.headings.push((slug(title), n));
         }
         // Odnośniki {Symbol} poza `kodem`.
         let mut in_tick = false;

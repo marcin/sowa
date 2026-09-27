@@ -1,3 +1,72 @@
-# Szkic formatu. Generuje `sowa review`, nie edytuj ręcznie. Plik należy do właściciela w CODEOWNERS.
-# Pusty, bo PR czeka na zatwierdzenie: wiersze dopisze `sowa review`, gdy człowiek potwierdzi opisy.
-# opis                                     symbol                 przez  hash    kto                    przejrzane
+# Generuje `sowa review --confirm-docs`, nie edytuj ręcznie. Plik należy do właściciela w CODEOWNERS.
+# przez: doc / why = odnośnik z kodu do .md, {} = odnośnik {Symbol} z .md do kodu.
+# hash: sygnatura funkcji, definicja typu albo, dla nagłówka pliku, wszystkie definicje w pliku.
+# opis                                                                        symbol              przez  hash    kto                 przejrzane
+decyzje/001-ksef-osobnym-krokiem.md                                           issue_invoice       why    86788f  reviewer@intum.com  2026-09-27
+decyzje/001-ksef-osobnym-krokiem.md                                           send_to_ksef        why    7aa076  reviewer@intum.com  2026-09-27
+decyzje/001-ksef-osobnym-krokiem.md                                           src/ksef.sowa       why    116d89  reviewer@intum.com  2026-09-27
+decyzje/001-ksef-osobnym-krokiem.md#001-wysyłka-do-ksef-jest-osobnym-krokiem  issue_invoice       {}     86788f  reviewer@intum.com  2026-09-27
+decyzje/001-ksef-osobnym-krokiem.md#001-wysyłka-do-ksef-jest-osobnym-krokiem  post_invoice        {}     61ad4b  reviewer@intum.com  2026-09-27
+decyzje/001-ksef-osobnym-krokiem.md#001-wysyłka-do-ksef-jest-osobnym-krokiem  post_ksef           {}     58666c  reviewer@intum.com  2026-09-27
+decyzje/001-ksef-osobnym-krokiem.md#001-wysyłka-do-ksef-jest-osobnym-krokiem  send_to_ksef        {}     7aa076  reviewer@intum.com  2026-09-27
+decyzje/001-ksef-osobnym-krokiem.md#decyzja                                   issue_invoice       {}     86788f  reviewer@intum.com  2026-09-27
+decyzje/001-ksef-osobnym-krokiem.md#decyzja                                   send_to_ksef        {}     7aa076  reviewer@intum.com  2026-09-27
+decyzje/001-ksef-osobnym-krokiem.md#dlaczego                                  issue_invoice       {}     86788f  reviewer@intum.com  2026-09-27
+decyzje/001-ksef-osobnym-krokiem.md#dlaczego                                  post_invoice        {}     61ad4b  reviewer@intum.com  2026-09-27
+decyzje/001-ksef-osobnym-krokiem.md#konsekwencje                              issue_invoice       {}     86788f  reviewer@intum.com  2026-09-27
+decyzje/001-ksef-osobnym-krokiem.md#konsekwencje                              send_to_ksef        {}     7aa076  reviewer@intum.com  2026-09-27
+decyzje/002-ponowna-wysylka.md                                                send_to_ksef        why    7aa076  reviewer@intum.com  2026-09-27
+decyzje/002-ponowna-wysylka.md                                                src/ksef_fake.sowa  why    79367d  reviewer@intum.com  2026-09-27
+decyzje/002-ponowna-wysylka.md#002-ponowna-wysyłka-do-ksef-jest-bezpieczna    ksef_fake           {}     79367d  reviewer@intum.com  2026-09-27
+decyzje/002-ponowna-wysylka.md#002-ponowna-wysyłka-do-ksef-jest-bezpieczna    send_to_ksef        {}     7aa076  reviewer@intum.com  2026-09-27
+decyzje/002-ponowna-wysylka.md#jak-tego-pilnować                              ksef_fake           {}     79367d  reviewer@intum.com  2026-09-27
+uzytkownik/faktury.md#faktury                                                 Nip                 {}     76aa1f  reviewer@intum.com  2026-09-27
+uzytkownik/faktury.md#stawki-vat                                              VatRate             doc    009658  reviewer@intum.com  2026-09-27
+uzytkownik/faktury.md#stawki-vat                                              VatRate             {}     009658  reviewer@intum.com  2026-09-27
+uzytkownik/faktury.md#sumy                                                    totals              doc    1f1b85  reviewer@intum.com  2026-09-27
+uzytkownik/faktury.md#sumy                                                    totals              {}     1f1b85  reviewer@intum.com  2026-09-27
+uzytkownik/faktury.md#wystawianie-faktury                                     Invoice             doc    d573b3  reviewer@intum.com  2026-09-27
+uzytkownik/faktury.md#wystawianie-faktury                                     InvoiceNumber       {}     68314b  reviewer@intum.com  2026-09-27
+uzytkownik/faktury.md#wystawianie-faktury                                     Nip                 {}     76aa1f  reviewer@intum.com  2026-09-27
+uzytkownik/faktury.md#wystawianie-faktury                                     issue_invoice       doc    86788f  reviewer@intum.com  2026-09-27
+uzytkownik/faktury.md#wystawianie-faktury                                     post_invoice        doc    61ad4b  reviewer@intum.com  2026-09-27
+uzytkownik/faktury.md#wystawianie-faktury                                     post_invoice        {}     61ad4b  reviewer@intum.com  2026-09-27
+uzytkownik/faktury.md#wysyłka-do-ksef                                         InvoiceStatus       doc    4b32a7  reviewer@intum.com  2026-09-27
+uzytkownik/faktury.md#wysyłka-do-ksef                                         InvoiceStatus       {}     4b32a7  reviewer@intum.com  2026-09-27
+uzytkownik/faktury.md#wysyłka-do-ksef                                         post_ksef           doc    58666c  reviewer@intum.com  2026-09-27
+uzytkownik/faktury.md#wysyłka-do-ksef                                         post_ksef           {}     58666c  reviewer@intum.com  2026-09-27
+uzytkownik/faktury.md#wysyłka-do-ksef                                         send_to_ksef        doc    7aa076  reviewer@intum.com  2026-09-27
+zalozenia.md#błędy                                                            error_message       {}     72288e  reviewer@intum.com  2026-09-27
+zalozenia.md#błędy                                                            src/web.sowa        why    9f6985  reviewer@intum.com  2026-09-27
+zalozenia.md#dane-z-formularza                                                InvoiceForm         {}     b4cfb9  reviewer@intum.com  2026-09-27
+zalozenia.md#dane-z-formularza                                                read_buyer          {}     72706e  reviewer@intum.com  2026-09-27
+zalozenia.md#dane-z-formularza                                                read_line           {}     2a88c4  reviewer@intum.com  2026-09-27
+zalozenia.md#dane-z-formularza                                                src/issuing.sowa    why    a3694f  reviewer@intum.com  2026-09-27
+zalozenia.md#dane-z-formularza                                                src/types.sowa      why    34c2d6  reviewer@intum.com  2026-09-27
+zalozenia.md#kwoty                                                            line_net            {}     1f7ebf  reviewer@intum.com  2026-09-27
+zalozenia.md#kwoty                                                            src/invoice.sowa    why    5caf8a  reviewer@intum.com  2026-09-27
+zalozenia.md#kwoty                                                            src/types.sowa      why    34c2d6  reviewer@intum.com  2026-09-27
+zalozenia.md#kwoty                                                            totals              {}     1f1b85  reviewer@intum.com  2026-09-27
+zalozenia.md#nip                                                              Nip                 why    76aa1f  reviewer@intum.com  2026-09-27
+zalozenia.md#nip                                                              Nip                 {}     76aa1f  reviewer@intum.com  2026-09-27
+zalozenia.md#nip                                                              read_nip            {}     95c43a  reviewer@intum.com  2026-09-27
+zalozenia.md#numeracja                                                        InvoiceNumber       {}     68314b  reviewer@intum.com  2026-09-27
+zalozenia.md#numeracja                                                        mark_sent           {}     07ec47  reviewer@intum.com  2026-09-27
+zalozenia.md#numeracja                                                        save_new_invoice    why    82f715  reviewer@intum.com  2026-09-27
+zalozenia.md#numeracja                                                        save_new_invoice    {}     82f715  reviewer@intum.com  2026-09-27
+zalozenia.md#numeracja                                                        src/invoice.sowa    why    5caf8a  reviewer@intum.com  2026-09-27
+zalozenia.md#numeracja                                                        src/storage.sowa    why    41842d  reviewer@intum.com  2026-09-27
+zalozenia.md#testy                                                            ksef_fake           {}     79367d  reviewer@intum.com  2026-09-27
+zalozenia.md#uprawnienia                                                      get_invoice         {}     bbdd54  reviewer@intum.com  2026-09-27
+zalozenia.md#uprawnienia                                                      get_list            {}     0ee57f  reviewer@intum.com  2026-09-27
+zalozenia.md#uprawnienia                                                      handle              {}     2eb526  reviewer@intum.com  2026-09-27
+zalozenia.md#uprawnienia                                                      issue_invoice       {}     86788f  reviewer@intum.com  2026-09-27
+zalozenia.md#uprawnienia                                                      main                {}     40ac4f  reviewer@intum.com  2026-09-27
+zalozenia.md#uprawnienia                                                      post_invoice        {}     61ad4b  reviewer@intum.com  2026-09-27
+zalozenia.md#uprawnienia                                                      post_ksef           {}     58666c  reviewer@intum.com  2026-09-27
+zalozenia.md#uprawnienia                                                      send_to_ksef        {}     7aa076  reviewer@intum.com  2026-09-27
+zalozenia.md#uprawnienia                                                      src/issuing.sowa    why    a3694f  reviewer@intum.com  2026-09-27
+zalozenia.md#uprawnienia                                                      src/ksef.sowa       why    116d89  reviewer@intum.com  2026-09-27
+zalozenia.md#uprawnienia                                                      src/main.sowa       why    40ac4f  reviewer@intum.com  2026-09-27
+zalozenia.md#uprawnienia                                                      src/storage.sowa    why    41842d  reviewer@intum.com  2026-09-27
+zalozenia.md#uprawnienia                                                      src/web.sowa        why    9f6985  reviewer@intum.com  2026-09-27

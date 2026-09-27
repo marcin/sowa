@@ -46,8 +46,6 @@ Specyfikacja (src/, docs/, sowa.toml): 3 zmiany
   [3] usunięty test   totals         src/invoice.sowa:50   property totals(lines, discount).net <= totals(lines, 0).net
 
 Kod (impl/): 3 pliki, 120 linii, nie wymaga przeglądu.
-  warunki wyniku: 3 udowodnione, 1 sprawdzany w runtime (line_net)
-  mutacje wykryte przez testy: 41 z 44
 ```
 
 Człowiek zatwierdza raz. Potem agent może jeszcze poprawiać `impl/`, ale każda zmiana w `src/` wymaga ponownego zatwierdzenia i pilnuje tego CI.
@@ -60,7 +58,7 @@ Porównanie objęło popularne języki i kilkadziesiąt projektów języków dla
 2. **Zatwierdzasz raz, działającą całość.** Nie czytasz pomysłu, który za godzinę się zmieni. Agent buduje, aż testy przejdą, a ty zatwierdzasz wersję końcową. Po zatwierdzeniu `sowa check --ci` pilnuje, że specyfikacja już się nie zmieni, a poprawki w `impl/` nie wymagają ponownej zgody. [Zatwierdzanie](docs/zatwierdzanie.md)
 3. **Lista decyzji zamiast diffu.** Nowe uprawnienie, luźniejszy warunek w typie, usunięty test: `sowa review` wyciąga je z całej zmiany i ustawia na górze. Czy warunek jest luźniejszy, rozstrzyga solver i pokazuje kontrprzykład („dopuszcza 101”). Zwykły diff pokazuje to tak samo jak zmianę nazwy zmiennej.
 4. **Uprawnienia jako zwykłe parametry.** `mail: Mailer` w sygnaturze znaczy „ten jeden serwer z `sowa.toml`”, a funkcja bez takich parametrów jest czysta. Nie trzeba osobnej konfiguracji architektury: z sygnatur w `src/` widać, który moduł może wysyłać, a który tylko liczy. Aver i Deno mają listę dozwolonych hostów, ale dla całego programu i dopiero w runtime. Języki z object capabilities (E, Pony, Austral) znają ten pomysł. Sowa łączy go z zatwierdzaniem: nowe uprawnienie zawsze jest na górze listy.
-5. **Testy, których agent nie osłabi.** `example`, `property` i warunki wyniku (`-> Money(α <= total)`) w `src/` są częścią specyfikacji, więc agent nie poprawi testu, żeby przeszedł. Dane do `property` generują się z typów, a wynik testów mutacyjnych człowiek widzi zamiast kodu.
+5. **Testy, których agent nie osłabi.** `example`, `property` i warunki wyniku (`-> Money(α <= total)`) w `src/` są częścią specyfikacji, więc agent nie poprawi testu, żeby przeszedł. Dane do `property` generują się z typów. W planie są testy mutacyjne, których wynik człowiek zobaczy zamiast kodu.
 6. **Opisy, które nie zestarzeją się po cichu.** Doctesty (Rust, Elixir) sprawdzają kod w dokumentacji, ale nie tekst. Gdy zmieni się sygnatura, `docs.lock` wskaże akapity, które trzeba przejrzeć. Odnośniki z kodu do `.md` i `{Symbol}` w `.md` sprawdza kompilator.
 7. **Proces, którego nie da się obejść po cichu.** `sowa check` sprawdza też sam proces: czy CODEOWNERS obejmuje `src/`, `docs/`, `sowa.toml` i `docs.lock`. Bez tego wszystkie powyższe zabezpieczenia byłyby tylko umową.
 
@@ -113,4 +111,4 @@ Na wejściu 4 razy większym Sowa → Rust jest ok. 12% wolniejsza od ttfx. Szcz
 
 ## Status
 
-Na razie to głównie projekt na papierze: specyfikacja i przykłady. [compiler/](compiler/) to kompilator do Rusta (testowo także do JavaScriptu dla Buna): `sowa check`, `sowa test` i `sowa run` działają na [examples/fakturownia_web](examples/fakturownia_web/), [examples/ttfx_decrypt](examples/ttfx_decrypt/) i [examples/ttfx_decrypt_fast](examples/ttfx_decrypt_fast/), bez solvera i bez `sowa review`. Następny krok to `sowa check` dla uprawnień, specyfikacji i dokumentacji oraz `sowa review` z solverem, sprawdzony na [examples/invoices](examples/invoices/) ([plan](docs/ocena.md#następny-krok)). Uwagi i krytyka mile widziane.
+Na razie to głównie projekt na papierze: specyfikacja i przykłady. [compiler/](compiler/) to kompilator do Rusta (testowo także do JavaScriptu dla Buna): `sowa check`, `sowa test` i `sowa run` działają na [examples/fakturownia_web](examples/fakturownia_web/), [examples/invoices](examples/invoices/), [examples/ttfx_decrypt](examples/ttfx_decrypt/) i [examples/ttfx_decrypt_fast](examples/ttfx_decrypt_fast/). Działają też `sowa review --base main` z małym solverem, który podaje kontrprzykłady, `docs.lock` i `sowa check --ci` z zatwierdzeniem z GitHuba ([przykład wyniku](examples/fakturownia_web/PR.md)). Nie ma jeszcze dowodzenia warunków wyniku, testów mutacyjnych ani zatwierdzania podpisanym commitem. Uwagi i krytyka mile widziane.

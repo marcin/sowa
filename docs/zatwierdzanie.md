@@ -46,6 +46,8 @@ Ustawienia w ochronie `main`:
 - wymagane jest review od właściciela z CODEOWNERS,
 - „Dismiss stale approvals when new commits are pushed” jest **wyłączone**. Gdyby było włączone, każda poprawka w `impl/` kasowałaby zatwierdzenie, a człowiek musiałby zatwierdzać kod, którego nie czyta. Zmianę specyfikacji po zatwierdzeniu i tak wyłapie check z kroku 4.
 
+Check musi się uruchamiać także po każdym zatwierdzeniu (`pull_request_review`), a checkout potrzebuje pełnej historii, żeby zatwierdzony commit był w repozytorium. Przykładowy workflow jest w [compiler/README.md](../compiler/README.md#przegląd-i-zatwierdzanie).
+
 Dlaczego nie odwrotnie, czyli specyfikacja zatwierdzana przed kodem: człowiek czytałby pomysł, który nie wiadomo, czy zadziała. W trakcie implementacji prawie zawsze wychodzi coś, co zmienia specyfikację, więc zatwierdzałby dwa razy, a za pierwszym razem na próżno. Zatwierdzanie gotowej, działającej zmiany jest tańsze, a pułapkę dopasowania specyfikacji do kodu rozbraja porównanie z `main`.
 
 ## `sowa review`: zmiany w znaczeniu
