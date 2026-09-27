@@ -15,11 +15,10 @@ fn discount_or_zero(input: Int) -> Percent
   return input as Percent or 0
 
 // Blok, gdy trzeba zrobić coś więcej niż return. Musi kończyć się return.
-fn read_discount(input: Int) -> Percent | FormError
-  effects Log
-
+// Pisanie do logów wymaga uprawnienia Log w parametrze.
+fn read_discount(input: Int, log: Log) -> Percent | FormError
   pct = input as Percent or
-    log("zły rabat: " + input)
+    log.write("zły rabat: " + input)
     return InvalidDiscount
   return pct
 

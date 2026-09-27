@@ -1,0 +1,47 @@
+// Uprawnienia: funkcja może zrobić coś poza liczeniem tylko przez uprawnienie,
+// które dostała w parametrze (Db, DbRead, Clock, Mailer, Http, Log, ...).
+// Funkcja bez uprawnień w parametrach jest czysta.
+
+fn cart_total(cart: Cart) -> Money
+  return sum(cart.items.map(i => i.price * i.quantity))
+
+fn get_user(id: UserId, db: DbRead) -> User
+
+fn save_receipt(receipt: Receipt, db: Db)
+
+// Mailer to jeden serwer z [resources] w sowa.toml. Adresu serwera nie da się podać w kodzie.
+fn send_receipt(email: Email, receipt: Receipt, mail: Mailer) -> Sent | SendError
+  return try mail.send(email, "Paragon", render(receipt))
+
+// Wywołujesz funkcję z uprawnieniem, więc musisz je mieć.
+// Db można przekazać tam, gdzie funkcja chce DbRead, ale nie odwrotnie.
+fn notify(id: UserId, receipt: Receipt, db: Db, mail: Mailer) -> Sent | SendError
+  save_receipt(receipt, db)
+  user = get_user(id, db)
+  return try send_receipt(user.email, receipt, mail)
+
+// Lambda może użyć uprawnienia z otoczenia. each nie ma w sygnaturze żadnego
+// uprawnienia: zrobi tylko to, co przekazana funkcja.
+fn save_all(receipts: List<Receipt>, db: Db)
+  receipts.each(r => save_receipt(r, db))
+
+// Uprawnienia dostaje tylko main, od runtime, według nazw parametrów i [resources].
+fn main(db: Db, mail: Mailer)
+  ...
+
+// Tak się nie skompiluje:
+//
+//   fn notify(id: UserId, receipt: Receipt, db: DbRead)
+//     user = get_user(id, db)
+//     send_receipt(user.email, receipt, mail)
+//
+// błąd: notify nie ma uprawnienia mail (Mailer); dodaj je do parametrów
+//
+//   fn get_user(id: UserId, db: DbRead) -> User
+//     save_receipt(last_receipt, db)
+//
+// błąd: save_receipt wymaga Db, a db ma typ DbRead (tylko odczyt)
+//
+//   mail = Mailer("smtp.gdzies.com:25")
+//
+// błąd: uprawnienia nie da się utworzyć w kodzie; dostaje je main według [resources] w sowa.toml

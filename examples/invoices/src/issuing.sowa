@@ -1,6 +1,6 @@
 desc Wystawianie faktury: od danych z formularza do zapisanej faktury z numerem.
 why zalozenia.md#błędy
-why zalozenia.md#obliczenia-i-efekty
+why zalozenia.md#obliczenia-i-uprawnienia
 
 type InvoiceForm
   buyer_name: String
@@ -15,9 +15,8 @@ type IssueError = InvalidBuyer | InvalidNip | InvalidEmail | InvalidDiscount | E
 fn read_buyer(form: InvoiceForm) -> Buyer | IssueError
   desc Sprawdza dane nabywcy z formularza.
 
-fn issue_invoice(form: InvoiceForm) -> Invoice | IssueError
-  effects Db.read, Db.write, Clock
-
+// Db i Clock w parametrach, bez Mailer: wystawienie faktury niczego nie wysyła.
+fn issue_invoice(form: InvoiceForm, db: Db, clock: Clock) -> Invoice(α.status == Issued) | IssueError
   doc uzytkownik/faktury.md#wystawianie-faktury
   why decyzje/002-numeracja-bez-luk.md
   why decyzje/003-wysylka-osobno.md

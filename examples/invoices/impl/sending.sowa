@@ -5,8 +5,6 @@ fn render_pdf(invoice: Invoice) -> Pdf
 fn subject(invoice: Invoice) -> String
   return "Faktura " + invoice.number
 
-fn send_invoice(invoice: Invoice) -> Sent | SendError
-  effects Net(mail)
-
+fn send_invoice(invoice: Invoice, mail: Mailer) -> Sent | SendError
   pdf = render_pdf(invoice)
-  return try mail_send(mail, invoice.buyer.email, subject(invoice), pdf)
+  return try mail.send(invoice.buyer.email, subject(invoice), pdf)

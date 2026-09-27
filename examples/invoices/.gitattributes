@@ -1,4 +1,4 @@
 # Kod w impl/ jest w PR domyślnie zwinięty: recenzent widzi specyfikację z src/.
-# Wyjątek: pliki z [review] read w sowa.toml, które człowiek czyta.
+# Wyjątek: numeracja, której kod człowiek czyta (jest też w .github/CODEOWNERS).
 impl/**               linguist-generated=true
 impl/numbering.sowa   -linguist-generated

@@ -1,6 +1,6 @@
 desc Faktura, pozycje i sumy.
 why zalozenia.md#kwoty
-why zalozenia.md#obliczenia-i-efekty
+why zalozenia.md#obliczenia-i-uprawnienia
 
 type Line
   desc Jedna pozycja na fakturze. Cena jednostkowa jest netto.
@@ -31,16 +31,20 @@ type Totals
   vat: Money
   gross: Money
 
-fn line_net(line: Line, discount: Percent) -> Money
+fn line_net(line: Line, discount: Percent) -> Money(α >= 0)
   desc Wartość netto pozycji po rabacie, zaokrąglona do grosza.
   doc uzytkownik/faktury.md#rabat
 
   example line_net(Line(name: "Usługa", quantity: 2, unit_net: 50, vat: Vat23), 10) == 90
+  property line_net(line, 0) == line.unit_net * line.quantity
 
-fn totals(lines: List<Line>(len(α) > 0), discount: Percent) -> Totals
+// Warunek wyniku: brutto to zawsze netto plus VAT. Kompilator próbuje to udowodnić,
+// a property sprawdza na danych generowanych z typów, że rabat nie podnosi sumy.
+fn totals(lines: List<Line>(len(α) > 0), discount: Percent) -> Totals(α.gross == α.net + α.vat)
   desc Sumy netto, VAT i brutto dla całej faktury.
   doc uzytkownik/faktury.md#sumy-i-zaokrąglenia
   why decyzje/001-vat-od-sumy-w-stawce.md
 
   example totals([Line(name: "Usługa", quantity: 1, unit_net: 100, vat: Vat23)], 0)
     == Totals(net: 100, vat: 23, gross: 123)
+  property totals(lines, discount).net <= totals(lines, 0).net

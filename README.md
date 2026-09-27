@@ -10,9 +10,7 @@ Moduł ma dwa pliki. W `src/` jest specyfikacja, którą zatwierdza człowiek:
 
 ```
 // src/sending.sowa
-fn send_invoice(invoice: Invoice) -> Sent | SendError
-  effects Net(mail)
-
+fn send_invoice(invoice: Invoice, mail: Mailer) -> Sent | SendError
   doc uzytkownik/faktury.md#wysyłka-e-mailem
   why decyzje/003-wysylka-osobno.md
 ```
@@ -21,48 +19,50 @@ W `impl/` jest kod, który pisze agent i którego człowiek nie musi czytać:
 
 ```
 // impl/sending.sowa
-fn send_invoice(invoice: Invoice) -> Sent | SendError
-  effects Net(mail)
-
+fn send_invoice(invoice: Invoice, mail: Mailer) -> Sent | SendError
   pdf = render_pdf(invoice)
-  return try mail_send(mail, invoice.buyer.email, subject(invoice), pdf)
+  return try mail.send(invoice.buyer.email, subject(invoice), pdf)
 ```
 
-A `mail` to jeden adres zatwierdzony w `sowa.toml`:
+`mail: Mailer` to uprawnienie: bez tego parametru funkcja nie ma czym wysłać e-maila. Uprawnienia nie da się utworzyć w kodzie, więc jedyny `Mailer` w programie to serwer zatwierdzony w `sowa.toml`:
 
 ```toml
-[effects.resources]
-mail = "smtp.firma.pl:587"
+[resources]
+mail = { type = "Mailer", server = "smtp.firma.pl:587" }
 ```
 
 Jeśli agent w `impl/` spróbuje wysłać fakturę gdzie indziej, zapisać coś do bazy albo zwrócić nowy rodzaj błędu, kod się nie skompiluje. Żeby to zrobić, musi zmienić `src/`, a tego nie da się scalić bez zgody człowieka.
 
-Zamiast diffu 800 linii człowiek dostaje listę decyzji, od najbardziej ryzykownej:
+Agent pracuje swobodnie, aż całość działa. Wtedy zamiast diffu 800 linii człowiek dostaje listę decyzji, od najbardziej ryzykownej:
 
 ```
-$ sowa review
+$ sowa review --base main
 
-Zmiany w specyfikacji (src/, docs/):
+Specyfikacja (src/, docs/, sowa.toml): 3 zmiany
 
-  [1] niebezpieczne   send_reminder  src/sending.sowa:24   nowa funkcja, effects Net(mail)
-  [2] osłabienie      Percent        src/types.sowa:5      warunek: α <= 100  →  α <= 1000
-  [3] usunięty test   totals         src/invoice.sowa:45   example totals([...], 0) == Totals(...)
+  [1] uprawnienie     send_reminder  src/sending.sowa:24   nowa funkcja z Mailer (mail: smtp.firma.pl:587)
+  [2] osłabienie      Percent        src/types.sowa:5      α <= 100  →  α <= 1000
+                                                           dopuszcza np. 101
+  [3] usunięty test   totals         src/invoice.sowa:50   property totals(lines, discount).net <= totals(lines, 0).net
 
 Kod (impl/): 3 pliki, 120 linii, nie wymaga przeglądu.
+  warunki wyniku: 3 udowodnione, 1 sprawdzany w runtime (line_net)
   mutacje wykryte przez testy: 41 z 44
 ```
+
+Człowiek zatwierdza raz. Potem agent może jeszcze poprawiać `impl/`, ale każda zmiana w `src/` wymaga ponownego zatwierdzenia i pilnuje tego CI.
 
 ## Czego nie ma w innych językach
 
 Porównanie objęło popularne języki i kilkadziesiąt projektów języków dla AI ([porównanie](docs/porownanie.md)). Najbliżej jest [Aver](https://github.com/jasisz/aver), z tą samą tezą: „AI pisze, człowiek przegląda kontrakty”. Tam przegląd jest jednak zaleceniem, a agent może po cichu zmienić kontrakt albo test. W Sowie zatwierdzanie jest egzekwowane:
 
-1. **Specyfikacja to granica, a nie widok.** Człowiek zatwierdza `src/` przez CODEOWNERS, `impl/` jest w PR zwinięty, a kompilator nie pozwala kodowi wyjść poza specyfikację. W OCamlu (`.mli`) i Adzie (`.ads`) podział plików służy kompilacji, a w Sowie odpowiedzialności. Kod możesz też czytać, w wybranych modułach albo w całym projekcie. [Tryby](docs/tryby.md)
-2. **Lista decyzji zamiast diffu.** Nowa funkcja z siecią, luźniejszy warunek w typie, usunięty test: `sowa review` wyciąga je z całej zmiany i ustawia na górze. Zwykły diff pokazuje to tak samo jak zmianę nazwy zmiennej. [Zatwierdzanie](docs/zatwierdzanie.md)
-3. **Adres w sygnaturze funkcji.** `effects Net(mail)` nie znaczy „sieć”, tylko „ten jeden serwer z `sowa.toml`”. Aver i Deno mają listę dozwolonych hostów, ale dla całego programu i dopiero w runtime. W Sowie sprawdza to kompilator dla każdej funkcji, a runtime jest drugą linią obrony.
-4. **Architektura sprawdzana przy każdym buildzie.** `sowa.toml` mówi, w których modułach wolno mieć jakie efekty: sieć tylko w wysyłce, zegar tylko przy wystawianiu faktury. Lintery importów robią coś podobnego, ale nie widzą wywołań pośrednich, a efekty je widzą. `sowa effects` pokazuje, w których funkcjach modułu powstaje jaki efekt, bez czytania kodu.
-5. **Testy, których agent nie osłabi.** Przykłady w `src/` są częścią specyfikacji, więc agent nie poprawi testu, żeby przeszedł. Dane testowe generują się z typów, a wynik testów mutacyjnych człowiek widzi zamiast kodu.
+1. **Specyfikacja to granica, a nie widok.** Człowiek zatwierdza `src/` przez CODEOWNERS, `impl/` jest w PR zwinięty, a kompilator nie pozwala kodowi wyjść poza specyfikację. W OCamlu (`.mli`) i Adzie (`.ads`) podział plików służy kompilacji, a w Sowie odpowiedzialności. Kod wybranego modułu możesz też czytać: wystarczy dopisać go do CODEOWNERS. [Specyfikacja i kod](docs/specyfikacja.md)
+2. **Zatwierdzasz raz, działającą całość.** Nie czytasz pomysłu, który za godzinę się zmieni. Agent buduje, aż testy przejdą, a ty zatwierdzasz wersję końcową. Po zatwierdzeniu `sowa check --ci` pilnuje, że specyfikacja już się nie zmieni, a poprawki w `impl/` nie wymagają ponownej zgody. [Zatwierdzanie](docs/zatwierdzanie.md)
+3. **Lista decyzji zamiast diffu.** Nowe uprawnienie, luźniejszy warunek w typie, usunięty test: `sowa review` wyciąga je z całej zmiany i ustawia na górze. Czy warunek jest luźniejszy, rozstrzyga solver i pokazuje kontrprzykład („dopuszcza 101”). Zwykły diff pokazuje to tak samo jak zmianę nazwy zmiennej.
+4. **Uprawnienia jako zwykłe parametry.** `mail: Mailer` w sygnaturze znaczy „ten jeden serwer z `sowa.toml`”, a funkcja bez takich parametrów jest czysta. Nie trzeba osobnej konfiguracji architektury: z sygnatur w `src/` widać, który moduł może wysyłać, a który tylko liczy. Aver i Deno mają listę dozwolonych hostów, ale dla całego programu i dopiero w runtime. Języki z object capabilities (E, Pony, Austral) znają ten pomysł. Sowa łączy go z zatwierdzaniem: nowe uprawnienie zawsze jest na górze listy.
+5. **Testy, których agent nie osłabi.** `example`, `property` i warunki wyniku (`-> Money(α <= total)`) w `src/` są częścią specyfikacji, więc agent nie poprawi testu, żeby przeszedł. Dane do `property` generują się z typów, a wynik testów mutacyjnych człowiek widzi zamiast kodu.
 6. **Opisy, które nie zestarzeją się po cichu.** Doctesty (Rust, Elixir) sprawdzają kod w dokumentacji, ale nie tekst. Gdy zmieni się sygnatura, `docs.lock` wskaże akapity, które trzeba przejrzeć. Odnośniki z kodu do `.md` i `{Symbol}` w `.md` sprawdza kompilator.
-7. **Proces, którego nie da się obejść po cichu.** `sowa check` sprawdza też sam proces: czy CODEOWNERS obejmuje specyfikację i pliki `.lock`. Bez tego wszystkie powyższe zabezpieczenia byłyby tylko umową.
+7. **Proces, którego nie da się obejść po cichu.** `sowa check` sprawdza też sam proces: czy CODEOWNERS obejmuje `src/`, `docs/`, `sowa.toml` i `docs.lock`. Bez tego wszystkie powyższe zabezpieczenia byłyby tylko umową.
 
 ## A jeśli chcesz czytać kod
 
@@ -71,21 +71,19 @@ Kod w Sowie ma być zrozumiały dla kogoś, kto zna tylko `if`, `return` i wywo�
 ```
 type Percent = Int(α >= 0 && α <= 100)
 
-fn checkout(user: User, input: Int) -> Receipt | CheckoutError
-  effects Net, Db.write
-
+fn checkout(user: User, input: Int, bank: Http, db: Db) -> Receipt | CheckoutError
   pct = input as Percent or return InvalidDiscount
-  amount = apply_discount(cart_total(user), pct)
-  return try pay(user, amount)
+  amount = apply_discount(cart_total(user.cart), pct) as Price or return EmptyCart
+  return try pay(user, amount, bank, db)
 ```
 
-Z samej sygnatury widać, że funkcja łączy się z siecią, zapisuje do bazy i może zwrócić `CheckoutError`, a `Percent` nigdy nie będzie spoza zakresu 0–100.
+Z samej sygnatury widać, że funkcja łączy się z bankiem, zapisuje do bazy i może zwrócić `CheckoutError`, a `Percent` nigdy nie będzie spoza zakresu 0–100.
 
 ## Zobacz
 
-- [examples/invoices/](examples/invoices/): cały mały projekt do wystawiania faktur w trybie `spec`. Najszybciej pokazuje, o co chodzi.
-- [docs/tryby.md](docs/tryby.md): specyfikacja i kod osobno, izolacja, co blokuje które zagrożenie.
-- [docs/zatwierdzanie.md](docs/zatwierdzanie.md): `sowa review`, pliki `.lock`, CODEOWNERS i kiedy to nie wystarcza.
+- [examples/invoices/](examples/invoices/): cały mały projekt do wystawiania faktur. Najszybciej pokazuje, o co chodzi.
+- [docs/specyfikacja.md](docs/specyfikacja.md): specyfikacja i kod osobno, izolacja, uprawnienia, co blokuje które zagrożenie.
+- [docs/zatwierdzanie.md](docs/zatwierdzanie.md): zatwierdzenie na końcu, `sowa review`, `docs.lock`, CODEOWNERS i kiedy to nie wystarcza.
 - [docs/zalozenia.md](docs/zalozenia.md): zasady i ustalona składnia.
 - [docs/przemyslenia.md](docs/przemyslenia.md): skąd te decyzje, odrzucone warianty, otwarte pytania, podobne projekty.
 - [docs/porownanie.md](docs/porownanie.md): tabele porównawcze z popularnymi językami i z językami ery AI.
@@ -95,4 +93,4 @@ Z samej sygnatury widać, że funkcja łączy się z siecią, zapisuje do bazy i
 
 ## Status
 
-Na razie to projekt na papierze: specyfikacja i przykłady, bez parsera i kompilatora. Następny krok to `sowa check` dla efektów, specyfikacji i dokumentacji, sprawdzony na [examples/invoices](examples/invoices/) ([plan](docs/ocena.md#następny-krok)). Uwagi i krytyka mile widziane.
+Na razie to projekt na papierze: specyfikacja i przykłady, bez parsera i kompilatora. Następny krok to `sowa check` dla uprawnień, specyfikacji i dokumentacji oraz `sowa review` z solverem, sprawdzony na [examples/invoices](examples/invoices/) ([plan](docs/ocena.md#następny-krok)). Uwagi i krytyka mile widziane.

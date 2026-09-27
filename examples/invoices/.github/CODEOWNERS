@@ -1,11 +1,11 @@
-# Specyfikacja, polityka projektu i zatwierdzenia wymagają zgody właściciela w PR.
-# Kod w impl/ nie ma właściciela (tryb spec w sowa.toml), poza plikami z [review] read.
+# Specyfikacja, zasoby i zatwierdzone opisy wymagają zgody właściciela w PR.
+# Kod w impl/ nie ma właściciela, poza numeracją, której kod człowiek czyta.
 # W prawdziwym projekcie ten plik leży w katalogu głównym repozytorium
 # (GitHub nie czyta CODEOWNERS z podkatalogów), tu jest tylko przykładem.
 # Działa tylko wtedy, gdy agent ma osobne konto bez prawa zatwierdzania,
 # a ochrona main nie ma wyjątku dla adminów. Zob. docs/zatwierdzanie.md.
 sowa.toml             @marcin
-*.lock                @marcin
+docs.lock             @marcin
 src/                  @marcin
 docs/                 @marcin
 impl/numbering.sowa   @marcin

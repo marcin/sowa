@@ -1,17 +1,16 @@
-// Ten plik człowiek czyta: jest w [review] read w sowa.toml i pod CODEOWNERS.
+// Ten plik człowiek czyta: jest w .github/CODEOWNERS i nie jest zwinięty w PR (.gitattributes).
 // Numeracja bez luk to wymóg prawny, a jej poprawności nie wyrazi sam typ.
 
 fn format_number(year: Int, seq: Int(α > 0)) -> InvoiceNumber
   return "FV/" + to_string(year) + "/" + pad_left(to_string(seq), 4, "0")
 
 fn save_with_next_number(buyer: Buyer, lines: List<Line>(len(α) > 0), discount: Percent,
-                         issued_on: Date) -> Invoice | NumberingFailed
-  effects Db.read, Db.write
-
-  // Składnia transakcji to otwarte pytanie. Tu transaction to zwykła funkcja z lambdą:
-  // jeśli coś się nie uda, wszystkie zapisy są wycofywane i wynik to DbError.
-  match transaction(() =>
-    seq = last_invoice_seq(issued_on.year) + 1
+                         issued_on: Date, db: Db) -> Invoice(α.status == Issued) | NumberingFailed
+  // Składnia transakcji to otwarte pytanie. Tu transaction to operacja na Db z lambdą,
+  // która dostaje tx: Db. Jeśli coś się nie uda, wszystkie zapisy są wycofywane
+  // i wynik to DbError.
+  match db.transaction(tx =>
+    seq = last_invoice_seq(issued_on.year, tx) + 1
     invoice = Invoice(
       number: format_number(issued_on.year, seq),
       buyer: buyer,
@@ -20,18 +19,14 @@ fn save_with_next_number(buyer: Buyer, lines: List<Line>(len(α) > 0), discount:
       issued_on: issued_on,
       status: Issued,
     )
-    save_invoice(invoice)
+    save_invoice(invoice, tx)
     return invoice
   )
     Invoice i => return i
     DbError   => return NumberingFailed
 
-fn last_invoice_seq(year: Int) -> Int(α >= 0)
-  effects Db.read
-
+fn last_invoice_seq(year: Int, db: DbRead) -> Int(α >= 0)
   // ciało pominięte w przykładzie
 
-fn save_invoice(invoice: Invoice)
-  effects Db.write
-
+fn save_invoice(invoice: Invoice, db: Db)
   // ciało pominięte w przykładzie

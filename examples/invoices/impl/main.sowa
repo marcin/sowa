@@ -1,0 +1,3 @@
+fn main(db: Db, clock: Clock, mail: Mailer)
+  // ciało pominięte w przykładzie: dla każdego wysłanego formularza
+  // issue_invoice(form, db, clock), a po zapisie send_invoice(invoice, mail)

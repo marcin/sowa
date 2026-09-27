@@ -4,11 +4,9 @@ fn read_buyer(form: InvoiceForm) -> Buyer | IssueError
   email = form.buyer_email as Email or return InvalidEmail
   return Buyer(name: name, nip: nip, email: email)
 
-fn issue_invoice(form: InvoiceForm) -> Invoice | IssueError
-  effects Db.read, Db.write, Clock
-
+fn issue_invoice(form: InvoiceForm, db: Db, clock: Clock) -> Invoice(α.status == Issued) | IssueError
   buyer = try read_buyer(form)
   discount = form.discount as Percent or return InvalidDiscount
   lines = form.lines as List<Line>(len(α) > 0) or return EmptyInvoice
-  today = current_date()
-  return try save_with_next_number(buyer, lines, discount, today)
+  today = clock.today()
+  return try save_with_next_number(buyer, lines, discount, today, db)

@@ -8,7 +8,6 @@
     { "include": "#desc-block" },
     { "include": "#desc-line" },
     { "include": "#doc-link" },
-    { "include": "#effects" },
     { "include": "#example" },
     { "include": "#code" }
   ],
@@ -54,23 +53,8 @@
         "3": { "name": "markup.underline.link.section.sowa" }
       }
     },
-    "effects": {
-      "begin": "^\\s*(effects)\\b",
-      "beginCaptures": {
-        "1": { "name": "keyword.other.effects.sowa" }
-      },
-      "end": "$",
-      "patterns": [
-        { "include": "#comment" },
-        {
-          "name": "support.class.effect.sowa",
-          "match": "\\b[A-Z][A-Za-z0-9_]*(?:\\.[a-z][A-Za-z0-9_]*)?\\b"
-        },
-        { "name": "punctuation.separator.comma.sowa", "match": "," }
-      ]
-    },
     "example": {
-      "match": "^\\s*(example)\\b",
+      "match": "^\\s*(example|property)\\b",
       "captures": {
         "1": { "name": "keyword.other.documentation.sowa" }
       }
@@ -84,6 +68,7 @@
         { "include": "#type-def" },
         { "include": "#keyword" },
         { "include": "#alpha" },
+        { "include": "#capability" },
         { "include": "#type-name" },
         { "include": "#call" },
         { "include": "#named-arg" },
@@ -128,6 +113,11 @@
       "comment": "α: wartość, której dotyczy warunek w typie.",
       "name": "variable.language.alpha.sowa",
       "match": "α"
+    },
+    "capability": {
+      "comment": "Wbudowane uprawnienia: parametry, bez których funkcja nie ma dostępu do bazy, zegara, sieci ani plików.",
+      "name": "support.class.capability.sowa",
+      "match": "\\b(Db|DbRead|Clock|Random|Log|Mailer|Http|Files)\\b"
     },
     "type-name": {
       "name": "entity.name.type.sowa",

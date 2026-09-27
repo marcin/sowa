@@ -18,7 +18,7 @@ Wniosek dla Sowy: prawdziwym problemem ery AI nie jest szybkość pisania, tylko
 
 - **Brak danych treningowych.** Modele gorzej piszą w niszowych językach. Stąd znajoma składnia i mała specyfikacja, która w całości mieści się w kontekście agenta. Uwaga: język Vera pokazuje w benchmarkach przewagę nad Pythonem mimo zerowych danych treningowych, więc ten argument może być słabszy, niż zakładamy.
 - **Rozwlekłość a czytelność.** Jawność pomaga w weryfikacji, ale zbyt dużo szumu utrudnia recenzję. Rozwiązanie: rygor na granicach, swoboda w środku.
-- **Siła gwarancji a koszt.** Pełna weryfikacja formalna jest za droga dla typowego SaaS-a. Gwarancje są więc stopniowane: domyślnie typy i efekty, opcjonalnie kontrakty, a dowody tylko w krytycznych modułach.
+- **Siła gwarancji a koszt.** Pełna weryfikacja formalna jest za droga dla typowego SaaS-a. Gwarancje są więc stopniowane: domyślnie typy i uprawnienia, opcjonalnie warunki wyniku i `property`, a dowody tylko w krytycznych modułach.
 
 ## Jak doszliśmy do `α`
 
@@ -75,7 +75,7 @@ Ogólna lekcja: skróty w stylu Ruby'ego sprawdzają się w zwykłym kodzie, ale
 
   `desc` w SQL-u znaczy „malejąco”, ale przy funkcji trudno to pomylić. Rozważaliśmy też `summary`.
 
-  Nagłówek funkcji dzielimy pustymi liniami na cztery grupy: `effects`, opis (`desc`, `doc`, `why`), przykłady (`example`), kod. Bez odstępów linie `why` zlewały się z pierwszą linią kodu. Przykłady były początkowo w grupie opisu, ale to kod, a nie tekst: `example apply_discount(100, 20) == 80` pod `why decyzje/...` zlewało się z odnośnikami, a przy trzech przykładach grupa robiła się długa. Z tego samego powodu przed `fn` zawsze stoi pusta linia: `desc` typu zlewał się z następnym `fn`. Typy, także z opisem, mogą stać jeden pod drugim, bo krótkie definicje czyta się razem.
+  Nagłówek funkcji dzielą puste linie na trzy grupy: opis (`desc`, `doc`, `why`), przykłady (`example`, `property`), kod. Wcześniej była też czwarta grupa, `effects`, ale uprawnienia przeszły do parametrów (zob. niżej). Bez odstępów linie `why` zlewały się z pierwszą linią kodu. Przykłady były początkowo w grupie opisu, ale to kod, a nie tekst: `example apply_discount(100, 20) == 80` pod `why decyzje/...` zlewało się z odnośnikami, a przy trzech przykładach grupa robiła się długa. Z tego samego powodu przed `fn` zawsze stoi pusta linia: `desc` typu zlewał się z następnym `fn`. Typy, także z opisem, mogą stać jeden pod drugim, bo krótkie definicje czyta się razem.
 
   Długość `desc` i liczbę przykładów przy kodzie ograniczają limity z `sowa.toml` (`[limits]`, z wartościami domyślnymi w języku). Po przekroczeniu `sowa check`, a nie formatter, prosi o przeniesienie do `.md`. Żeby agent nie „naprawiał” ostrzeżenia usuwaniem przykładów, `sowa check` pokazuje przy funkcji wszystkie jej testy, z kodu i z `.md`. `{Symbol}` działa też w `desc` i wiąże sekcję `.md` z symbolem w `docs.lock`.
 
@@ -89,30 +89,66 @@ Ogólna lekcja: skróty w stylu Ruby'ego sprawdzają się w zwykłym kodzie, ale
   - Cucumber / Gherkin: specyfikacja w języku naturalnym wykonywana jako testy.
 
   Wykrywania nieaktualnego opisu po zmianie sygnatury (`docs.lock`) nie znaleźliśmy w takiej formie nigdzie. To może być wyróżnik Sowy.
-- **Ograniczenia efektów w `sowa.toml`.** Deklaracja `effects` przy funkcji mówi, co funkcja robi, ale nie mówi, czy to w ogóle wolno. Sekcja `[effects]` w `sowa.toml` ustala politykę projektu: jakie efekty są dozwolone, w których plikach i czego wymagają (`why`, zatwierdzenie przez człowieka). Tabela „który plik ma jakie efekty” w `.md` była opisem, który mógł się rozjechać z kodem, a teraz sprawdza ją kompilator. Podobne pomysły: uprawnienia w Deno (`--allow-net`), `capabilities` w AILANG i Mog, reguły warstw w ArchUnit.
+- **Uprawnienia jako parametry zamiast `effects`.** Funkcja, która wysyła e-mail, dostaje `mail: Mailer`, a funkcja, która czyta z bazy, `db: DbRead`. Uprawnienia nie da się utworzyć w kodzie, zwrócić z funkcji ani zapisać w polu rekordu, więc płynie tylko przez parametry od `main`, który dostaje je od runtime według `[resources]` w `sowa.toml`. Funkcja bez uprawnień i bez parametrów-funkcji jest czysta.
 
-  Zatwierdzanie (`approve`) rozważaliśmy na trzech poziomach (całość w [zatwierdzanie.md](zatwierdzanie.md)):
+  | Wariant | Ocena |
+  |---|---|
+  | `effects Db.write, Net` przy funkcji i `[effects]` w `sowa.toml` (poprzednia wersja) | dwa miejsca do utrzymania; mapa „który plik ma jakie efekty” to osobna konfiguracja; funkcje wyższego rzędu wymagają wierszy efektów jak w Koce |
+  | `effects Net(mail)` z zasobem | adres jest w sygnaturze, ale nadal jest globalna funkcja `mail_send(mail, ...)` i osobna polityka plików |
+  | **uprawnienie jako parametr (`mail: Mailer`)** | **wybrane**: to zwykły parametr, więc nie ma nowej składni; czystość modułu widać z sygnatur w `src/`, bez konfiguracji; lambda przechwytuje uprawnienie, więc `each` i `map` nie potrzebują niczego; znane z object capabilities (E, Pony, Austral, WASI) |
+
+  Koszt: dłuższe sygnatury i przekazywanie `db` przez kilka warstw. Formatter stawia uprawnienia na końcu listy parametrów, żeby było je łatwo znaleźć. Uprawnień w rekordach nie ma celowo: struktura „wszystkie zależności” zamieniłaby każdą funkcję, która ją dostaje, w funkcję, która może wszystko.
+
+  Odrzucona została też lista modułów z uprawnieniami w `sowa.toml` (`[resources.files]`). Dublowałaby to, co i tak widać w sygnaturach w `src/`, a te są chronione przez CODEOWNERS.
+- **Zatwierdzanie bez plików z zatwierdzeniami.** Wcześniej funkcje z `Net` albo `Db.write` trafiały do `effects.lock` (`approve = true`), a wybrane moduły do mapy efektów (`[review.files]`, `sowa effects`). Całość w [zatwierdzanie.md](zatwierdzanie.md).
 
   | Sposób | Ocena |
   |---|---|
-  | sam plik `.lock` zapisywany przez `sowa review` | wygodne, ale agent może uruchomić polecenie albo dopisać wiersz sam |
-  | podpis kluczem SSH | mocne, ale wymaga konfiguracji; zostaje jako opcja `[review] sign = true` |
-  | **`.lock` + CODEOWNERS na `*.lock` i `sowa.toml`** | **wybrane jako domyślne**: korzysta z review PR, który zespół i tak robi, a diff pliku `.lock` jest listą kontrolną dla recenzenta |
+  | plik `.lock` zapisywany przez `sowa review` | agent może uruchomić polecenie albo dopisać wiersz sam |
+  | `effects.lock` z zatwierdzaniem funkcji po kolei | drugi mechanizm obok review PR; po tygodniu klika się bez czytania |
+  | **review PR, `sowa review` w komentarzu i check, że po zatwierdzeniu specyfikacja się nie zmieniła** | **wybrane**: korzysta z review, które zespół i tak robi; jedyny plik z zatwierdzeniami to `docs.lock`, bo tekstu nie da się sprawdzić inaczej |
+  | podpisany pusty commit | zostaje jako opcja przy pracy na jednym koncie (`[review] sign = true`) |
+- **Zatwierdzenie na końcu, a nie specyfikacja przed kodem.** Człowiek zatwierdza PR raz, gdy całość działa, a po zatwierdzeniu `sowa check --ci` nie przepuszcza zmian w plikach z właścicielem w CODEOWNERS.
 
-  Hash w `effects.lock` obejmuje sygnaturę i efekty, a nie ciało: zatwierdza się „ta funkcja może łączyć się z siecią”, a nie każdą zmianę w jej kodzie. Ostrzejszy wariant to `approve = "body"`.
+  | Wariant | Ocena |
+  |---|---|
+  | dwa PR-y: najpierw specyfikacja, potem kod | `main` przez chwilę ma specyfikację bez kodu; dwa review |
+  | specyfikacja zatwierdzana w szkicu PR, zanim powstanie kod | człowiek czyta pomysł, który w trakcie implementacji i tak się zmieni, więc zatwierdza dwa razy, a za pierwszym razem na próżno |
+  | „Dismiss stale approvals” włączone | każda poprawka w `impl/` kasuje zatwierdzenie, więc człowiek zatwierdza kod, którego nie czyta |
+  | **zatwierdzenie na końcu i check na zmiany specyfikacji po nim** | **wybrane**: człowiek widzi działający program i zatwierdza wersję końcową |
 
-  Drugi poziom zatwierdzania to mapa efektów modułu (`[review.files]`, `sowa effects`): człowiek zatwierdza listę „gdzie w module powstaje jaki efekt”, a nie funkcje po kolei. Odrzuciliśmy `effects` bez wcięcia w nagłówku pliku. Byłoby widać przy czytaniu kodu, ale dublowałoby `[effects.files]` z `sowa.toml`, a tylko `sowa.toml` jest chroniony przez CODEOWNERS.
-- **Domyślnie człowiek nie czyta kodu (tryb `spec`).** Agent pisze więcej, niż człowiek przeczyta, więc „człowiek czyta i zatwierdza” kończy się zatwierdzaniem bez czytania. Uczciwiej jest powiedzieć wprost, co człowiek zatwierdza: specyfikację (typy, sygnatury, efekty, opisy, przykłady). Kod leży osobno, w `impl/`, a pilnują go kompilator, testy, których agent nie może osłabić, i uprawnienia w runtime. Czytanie kodu zostaje jako opcja: wybrane pliki (`[review] read`) albo cały projekt (`mode = "code"`). Szczegóły w [tryby.md](tryby.md).
+  Pułapka zatwierdzania na końcu: specyfikacja jest już dopasowana do kodu, a agent mógł poluzować warunek, żeby test przeszedł. Rozbraja ją `sowa review --base main`: pokazuje zmianę netto względem `main`, a osłabienia i usunięte testy stawia na górze, z kontrprzykładem.
+- **Drugi agent jako recenzent.** Jeden agent pisze, drugi, „pewniejszy” (inny model, bez prawa zapisu), sprawdza zmianę, zanim zobaczy ją człowiek. Szczegóły w [zatwierdzanie.md](zatwierdzanie.md#drugi-agent-jako-recenzent).
+
+  | Wariant | Ocena |
+  |---|---|
+  | agent-recenzent zamiast człowieka | odrzucone: modele mają podobne ślepe plamy, więc błędy się nakładają; agent piszący może w PR przekonać recenzenta; recenzent nie wie, czego człowiek chciał, poza treścią zadania |
+  | **agent-recenzent jako filtr** | **wybrane jako opcja**: sam zatwierdza zmiany z kategorii „rozszerzenie” i „zwykłe”, a przy uprawnieniu, osłabieniu i usuniętym teście pisze uwagi i czeka na człowieka |
+
+  Dzięki stałym kategoriom w `sowa review` granicę między „agent może” a „tylko człowiek” wyznacza kompilator, a nie ocena recenzenta.
+- **`sowa review` bez konfiguracji.** Kategorie mają stałą kolejność: uprawnienie, osłabienie, usunięty test, rozszerzenie, zwykłe. Wcześniej ryzyko ustawiało się w `sowa.toml` (`[effects.rules]`, `approve`), ale nowe uprawnienie zawsze znaczy „kod może zrobić coś, czego wcześniej nie mógł”, więc nie ma czego ustawiać. Osłabienie rozpoznaje solver, sprawdzając, czy stary warunek wynika z nowego. Gdy nie umie rozstrzygnąć, zmiana trafia do osłabień: fałszywy alarm kosztuje mniej niż przepuszczone osłabienie. Podobnie działają buf breaking i cargo-semver-checks, ale z listą reguł zamiast solvera.
+- **Warunek wyniku i `property` zamiast `ensures`.**
+
+  | Wariant | Ocena |
+  |---|---|
+  | `ensures result <= total` pod sygnaturą | nowe słowo i nowa nazwa `result`; warunek oderwany od typu wyniku |
+  | **`-> Money(α <= total)`** | **wybrane**: ta sama składnia co warunki w typach i na parametrach, `α` znaczy „wynik” |
+  | `test property for all total, pct` | osobna konstrukcja z kwantyfikatorem |
+  | **`property apply_discount(total, 0) == total`** | **wybrane**: wygląda jak `example`, tylko nazwy parametrów znaczą „dowolna wartość tego typu”; dane generują się z warunków na typach |
+
+  Warunek wyniku, którego solver nie udowodni, nie jest błędem kompilacji. Zamienia się w sprawdzenie w runtime i w wygenerowane testy, a `sowa review` pokazuje, które warunki są udowodnione, a które tylko sprawdzane. Niespełniony warunek w runtime to błąd programu, a nie wariant wyniku.
+- **Człowiek nie czyta kodu.** Agent pisze więcej, niż człowiek przeczyta, więc „człowiek czyta i zatwierdza” kończy się zatwierdzaniem bez czytania. Uczciwiej jest powiedzieć wprost, co człowiek zatwierdza: specyfikację (typy, sygnatury z uprawnieniami, opisy, przykłady). Kod leży osobno, w `impl/`, a pilnują go kompilator, testy, których agent nie może osłabić, i uprawnienia. Szczegóły w [specyfikacja.md](specyfikacja.md).
 
   | Wariant | Ocena |
   |---|---|
   | jeden plik, ciała funkcji zwinięte w edytorze i w PR | CODEOWNERS działa na plikach, a nie na ich fragmentach, więc nie da się chronić sygnatur bez chronienia ciał |
   | osobny `spec.lock` z hashami sygnatur | więcej mechanizmu, a to samo daje CODEOWNERS na `src/` |
   | **`src/` ze specyfikacją, `impl/` z ciałami** | **wybrane**: granica w plikach, więc działa z CODEOWNERS, `.gitattributes` i zwykłym review PR; znane z Ady (`.ads`/`.adb`) i OCamla (`.mli`/`.ml`) |
+  | tryby w `sowa.toml` (`mode = "spec"` albo `"code"`, `[review] read`) | odrzucone: dwa sposoby pracy to dwa razy więcej reguł; czytanie wybranego pliku to wpis w CODEOWNERS i `.gitattributes`, a `sowa.toml` nie musi o tym wiedzieć |
 
-  Plik w `impl/` powtarza linię `fn` i `effects`. To dublowanie, ale bez niego plik z ciałami nie dałby się czytać bez otwierania `src/` obok. Kompilator sprawdza, czy obie linie są identyczne.
+  Plik w `impl/` powtarza linię `fn`. To dublowanie, ale bez niego plik z ciałami nie dałby się czytać bez otwierania `src/` obok. Kompilator sprawdza, czy obie linie są identyczne.
 
-  Efekty dostały zasoby (`Net(mail)` i `[effects.resources]`), bo w nieczytanym kodzie samo `Net` znaczy „dowolny adres”.
+  Uprawnienia do sieci mają zasób (`Mailer` do jednego serwera, `Http` do jednego adresu), bo w nieczytanym kodzie samo „sieć” znaczy „dowolny adres”.
 - **Ruby: składnia tak, semantyka nie.** Z Ruby'ego warto wziąć brak średników i lekkość zapisu. Nie bierzemy monkey-patchingu, `method_missing`, metaprogramowania ani DSL-i, w których nie wiadomo, skąd bierze się metoda. Tą drogą poszły już Elixir (składnia z Ruby'ego, semantyka z Erlanga) i Crystal.
 - **Jawne zamiast skrótów:**
   - `unless x` → `if not x`
@@ -158,26 +194,17 @@ Uczciwie: realistyczna droga może też polegać na dodaniu efektów, kontraktó
 ## Szkice na później
 
 ```
-spec apply_discount(total: Money, pct: Percent) -> Money
-  ensures result <= total
-  ensures pct == 0 => result == total
-  test property for all total, pct
-```
-Człowiek pisze `spec`, agent pisze implementację, a kompilator generuje testy property-based z `ensures`.
-
-```
 query callers(charge)
-  where effects contains Net
+  where takes Http
   and not tested
 ```
 Zapytania o strukturę programu. To samo zapytanie może działać jako reguła w CI.
 
 ```
 @origin(agent: "claude", reviewed: false)
-fn migrate_users()
-  effects Db.write
+fn migrate_users(db: Db)
 ```
-Przykładowa polityka: funkcja z `Db.write` nie trafi na produkcję bez `reviewed: true`.
+Przykładowa polityka: funkcja z `Db` nie trafi na produkcję bez `reviewed: true`.
 
 ```
 process InvoiceWorker supervised(restart: 3/min)
@@ -189,15 +216,15 @@ Izolowane procesy z supervisorem. Stan `observable` jest odpytywalny na żywo.
 
 - **Bloki:** wcięcia (jak w przykładach), `{ }` czy `do ... end`? W rozmowie pojawiały się wszystkie trzy.
 - **Błędy:** tylko typowane warianty (`InvalidDiscount`) czy także `error("tekst")`? Przykłady używają wariantów, bo tak działa `match`.
-- **Efekty:** jaka jest granulacja (`Db`, `Db.read`, `Db.write`)? Czy `Db.write` obejmuje `Db.read`? Czy można tworzyć własne efekty?
-- **`[effects]` w `sowa.toml`:**
-  - wzorce ścieżek (`"src/db/*"`) czy tylko pojedyncze pliki?
-  - więcej reguł: `rules.Net.errors = true` (wynik musi zawierać błąd, bo sieć zawodzi) wymaga odróżnienia typów błędów od zwykłych wariantów; `rules."Db.write".requires = ["Audit"]` (każdy zapis musi też logować)?
-  - zatwierdzanie: pytania w [zatwierdzanie.md](zatwierdzanie.md#otwarte-pytania).
+- **Uprawnienia:** czy wbudowane (`Db`, `DbRead`, `Clock`, `Random`, `Log`, `Mailer`, `Http`, `Files`) wystarczą? Czy można tworzyć własne, np. zawężając `Http` do jednej ścieżki? Pełna lista operacji (`clock.today()`, `log.write(...)`, `db.transaction(...)`)? Kolejne pytania w [specyfikacja.md](specyfikacja.md#otwarte-pytania).
+- **`[resources]` w `sowa.toml`:** jak podać sekrety, np. hasło do bazy (zmienne środowiskowe)? Inne zasoby w testach i na produkcji?
+- **Zatwierdzanie:** pytania w [zatwierdzanie.md](zatwierdzanie.md#otwarte-pytania).
 - **Weryfikacja:** co sprawdzać statycznie (solver, np. Z3), a co w runtime? Jak daleko idzie wnioskowanie po `if` (czy `if input >= 0 && input <= 100` wystarczy do `Percent(input)`)?
 - **`α` w typach złożonych:** jak zapisać warunek na polu wewnątrz typu z warunkiem, np. `Order(α.items: List(len(α) > 0))`? Który `α` jest który?
 - **Liczby:** czy `Money` to decimal? Jak działa dzielenie i zaokrąglanie w `total * pct / 100`?
-- **Efekty a funkcje wyższego rzędu:** jak zapisać `map(items, f)`, gdy `f` ma efekty, żeby sygnatura została czytelna? (Koka: wiersze efektów, ale mało czytelne.) Zob. [ocena.md](ocena.md).
+- **Uprawnienia w długich łańcuchach wywołań:** czy przekazywanie `db` przez kilka warstw nie zaśmieci sygnatur na tyle, że agent zacznie dawać `Db` wszędzie „na zapas”? Może ostrzeżenie o nieużywanym uprawnieniu.
+- **Warunki wyniku sprawdzane w runtime:** czy niespełniony warunek na produkcji ma przerywać program, czy tylko logować?
+- **`property` dla złożonych typów:** jak generować dane dla rekordów z warunkami na polach, np. `Invoice(α.status == Issued)`?
 - **Granice dowodzenia:** czy ograniczyć warunki do arytmetyki liniowej? Co robić, gdy solver nie da rady (np. `total * pct / 100`)?
 - **`or` z wartością domyślną:** czy `input as Percent or 0` nie połyka po cichu błędnych danych? Może dopuszczać tylko `return` i blok.
 - **Wartości limitów:** czy 3 linie `desc`, 3 przykłady i 5 linii na przykład to dobre wartości domyślne? Sprawdzić na większym kodzie.
@@ -209,15 +236,14 @@ Izolowane procesy z supervisorem. Stan `observable` jest odpytywalny na żywo.
   - argumenty nazwane: `Line(name: "A", quantity: 1)`, czy obowiązkowe?
   - kopia z jednym zmienionym polem: `invoice with status: Paid`?
   - moduły: czy wszystkie pliki w `src/` to jedna przestrzeń nazw (jak pakiet w Go), czy potrzebne są importy?
-  - transakcje: zwykła funkcja z lambdą czy osobna konstrukcja?
-  - odczyt daty i czasu jako efekt `Clock`? (Podobnie `Log` w przykładzie 02.)
+  - transakcje: operacja na `Db` z lambdą (`db.transaction(tx => ...)`) czy osobna konstrukcja?
   - manifest projektu: `sowa.toml`, jakie pola?
   - łamanie długich sygnatur i `example` na kilka linii.
-  - nagłówek pliku: hash obejmuje sygnatury całego pliku, więc ostrzeżenie o nieaktualnym opisie pojawi się przy każdej zmianie w pliku. Czy to nie za często? Może tylko zmiana efektów?
-- **Tryb `spec`** (zob. [tryby.md](tryby.md#otwarte-pytania)):
-  - zapis wywołań bibliotek spoza Sowy w `src/`, np. `extern fn`, i ich efektów,
+  - nagłówek pliku: hash obejmuje sygnatury całego pliku, więc ostrzeżenie o nieaktualnym opisie pojawi się przy każdej zmianie w pliku. Czy to nie za często? Może tylko zmiana uprawnień?
+- **Specyfikacja i kod** (zob. [specyfikacja.md](specyfikacja.md#otwarte-pytania)):
+  - zapis wywołań bibliotek spoza Sowy w `src/`, np. `extern fn`, i jakie uprawnienia dostają,
   - `Secret` / `Pii` dla danych wrażliwych: typ opakowujący czy etykieta na polu?
-  - zasoby dla bazy: `Db.write(invoices)`, czyli tabela jako zasób?
+  - zasoby dla bazy: `Db` zawężony do jednej tabeli?
   - czy `impl/` musi powtarzać sygnatury, czy wystarczy sama nazwa funkcji?
 - **Komentarze:** `//` czy `--`? (Nie `#`.)
 - **Rozszerzenie plików:** `.sowa`.

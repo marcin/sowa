@@ -1,7 +1,7 @@
-fn line_net(line: Line, discount: Percent) -> Money
+fn line_net(line: Line, discount: Percent) -> Money(α >= 0)
   return round(line.unit_net * line.quantity * (100 - discount) / 100, 2)
 
-fn totals(lines: List<Line>(len(α) > 0), discount: Percent) -> Totals
+fn totals(lines: List<Line>(len(α) > 0), discount: Percent) -> Totals(α.gross == α.net + α.vat)
   var net = 0
   var vat = 0
   for rate in distinct(lines.map(l => l.vat))

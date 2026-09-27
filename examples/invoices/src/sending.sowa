@@ -6,8 +6,7 @@ type SendError = MailRejected | MailTimeout
 fn render_pdf(invoice: Invoice) -> Pdf
   desc Tworzy PDF faktury. Czysta funkcja: ta sama faktura daje zawsze ten sam PDF.
 
-fn send_invoice(invoice: Invoice) -> Sent | SendError
-  effects Net(mail)
-
+// Mailer to serwer z [resources] w sowa.toml. Innego adresu nie da się podać w kodzie.
+fn send_invoice(invoice: Invoice, mail: Mailer) -> Sent | SendError
   doc uzytkownik/faktury.md#wysyłka-e-mailem
   why decyzje/003-wysylka-osobno.md

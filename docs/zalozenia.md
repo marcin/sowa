@@ -2,11 +2,11 @@
 
 ## Zasada nadrzędna
 
-Agent pisze, człowiek zatwierdza. Domyślnie człowiek zatwierdza granice i specyfikację: typy, sygnatury, efekty, opisy i przykłady. Kodu nie czyta: ciała funkcji leżą osobno, w `impl/`, i pilnują ich kompilator, testy i uprawnienia w runtime. Kod można też czytać, w wybranych modułach albo w całym projekcie (zob. [Tryby](#tryby-spec-i-code)). Z tego wynika reszta:
+Agent pisze, człowiek zatwierdza. Człowiek zatwierdza specyfikację: typy, sygnatury z uprawnieniami, opisy i przykłady. Robi to raz, gdy całość już działa, a kodu nie czyta: ciała funkcji leżą osobno, w `impl/`, i pilnują ich kompilator, testy i uprawnienia (zob. [Specyfikacja i kod](#specyfikacja-i-kod) i [Zatwierdzanie](#zatwierdzanie)). Z tego wynika reszta:
 
 1. **Jak najmniej wiedzy do przeczytania.** Kod ma być zrozumiały dla kogoś, kto zna tylko podstawy: operatory, `if`, `return`, wywołania funkcji. Każda rzecz, którą trzeba sprawdzić w dokumentacji, to koszt.
 2. **Dłuższe i oczywiste wygrywa z krótkim i sprytnym.** Agentowi nie przeszkadza pisanie więcej, a recenzentowi przeszkadza zgadywanie.
-3. **Rygorystyczne granice, swobodne wnętrze.** Sygnatury, warunki na typach, efekty i błędy są jawne i sprawdzane. To one są recenzowane, a w trybie `spec` tylko one. Ciało funkcji może być żmudne, bo kompilator pilnuje zgodności z sygnaturą.
+3. **Rygorystyczne granice, swobodne wnętrze.** Sygnatury, warunki na typach, uprawnienia i błędy są jawne i sprawdzane. To one są recenzowane, i tylko one. Ciało funkcji może być żmudne, bo kompilator pilnuje zgodności z sygnaturą.
 4. **Jeden sposób na jedną rzecz.** Mała, stabilna semantyka, bez makr i bez „magii” (monkey-patching, `method_missing`, otwarte klasy, ukryte hooki, globalny stan).
 5. **Znajoma składnia, nowa semantyka.** Składnia ma przypominać to, co ludzie i modele już znają (Rust, TypeScript, Ruby). Nowość jest w tym, co kompilator sprawdza.
 6. **Sprawdzanie w kompilacji.** Tam, gdzie się da, błąd ma wyjść przed uruchomieniem, a nie na produkcji.
@@ -51,6 +51,22 @@ Warunek można napisać bezpośrednio przy parametrze i może on odwoływać si�
 ```
 fn slice(list: List, start: Int(α >= 0), end: Int(α > start)) -> List
 ```
+
+#### Warunek wyniku
+
+Warunek można też napisać przy typie wyniku. `α` oznacza wtedy wynik, a warunek może odwoływać się do parametrów:
+
+```
+fn apply_discount(total: Money, pct: Percent) -> Money(α <= total)
+
+fn totals(lines: List<Line>(len(α) > 0), discount: Percent) -> Totals(α.gross == α.net + α.vat)
+
+fn issue_invoice(form: InvoiceForm, db: Db, clock: Clock) -> Invoice(α.status == Issued) | IssueError
+```
+
+Przy wyniku z błędami warunek dotyczy tylko wariantu, przy którym stoi. Nie ma osobnego słowa `ensures`: warunek wyniku zapisuje się tak samo jak warunek parametru.
+
+Kompilator próbuje udowodnić warunek wyniku przy każdym `return`. Jeśli nie umie, np. przy `total - total * pct / 100`, wstawia sprawdzenie w runtime i sprawdza ten warunek testami na danych generowanych z typów. `sowa review` pokazuje, które warunki są udowodnione, a które tylko sprawdzane. Niespełniony warunek wyniku to błąd programu, a nie wariant w typie wyniku, bo oznacza błąd w kodzie, a nie w danych.
 
 ### Zmienne: bez `let`, z `var`
 
@@ -107,175 +123,97 @@ pct = input as Percent
 
 Kompilator nie przepuści wartości, dla której nie da się udowodnić warunku. Samo `Percent(input)` bez sprawdzenia się nie skompiluje („nie można udowodnić, że input >= 0 && input <= 100”).
 
-### Efekty
+### Uprawnienia
 
-Linia `effects` pod sygnaturą mówi, co funkcja robi poza liczeniem. Funkcja bez `effects` jest czysta. Od kodu oddziela ją pusta linia (zob. [Dokumentacja](#dokumentacja-desc-doc-why-example)).
+Funkcja może zrobić coś poza liczeniem tylko przez **uprawnienie**, które dostała w parametrze. Uprawnienie to wartość jednego z wbudowanych typów, np. `Db`, `Clock` albo `Mailer`:
 
 ```
-fn get_user(id: UserId) -> User
-  effects Db.read
+fn issue_invoice(form: InvoiceForm, db: Db, clock: Clock) -> Invoice | IssueError
 
-fn send_receipt(email: Email, receipt: Receipt)
-  effects Net
+fn send_invoice(invoice: Invoice, mail: Mailer) -> Sent | SendError
 ```
 
-Reguła jest jedna: jeśli wywołujesz funkcję z efektem, musisz ten efekt zadeklarować u siebie. Agent nie przemyci wywołania sieci w funkcji, która miała tylko czytać z bazy.
+Operacje wywołuje się na uprawnieniu: `clock.today()`, `mail.send(to, subject, pdf)`, `db.transaction(...)`. Nie ma globalnych funkcji w rodzaju `current_date()` czy `http_post(url, ...)`, więc bez uprawnienia nie ma czym wysłać e-maila ani odczytać daty.
 
-#### Ograniczenia w `sowa.toml`
+Reguły:
 
-`effects` przy funkcji mówi, co funkcja robi. Sekcja `[effects]` w `sowa.toml` mówi, na co projekt w ogóle pozwala. Sprawdza ją `sowa check`:
+- **Funkcja bez uprawnień w parametrach jest czysta.** Nie łączy się z siecią, nie czyta zegara ani bazy. Widać to w sygnaturze, bez osobnego słowa kluczowego. Wyjątek to parametr, który sam jest funkcją (zob. [Funkcje przyjmujące funkcje](#funkcje-przyjmujące-funkcje)).
+- **Uprawnienia nie da się utworzyć w kodzie.** Nie ma konstruktora `Mailer("smtp.gdzies.com")`. Wszystkie uprawnienia dostaje `main` od runtime, według `[resources]` w `sowa.toml` (zob. niżej), i przekazuje je dalej w parametrach.
+- **Uprawnienie przechodzi tylko przez parametry.** Nie można go zapisać w polu rekordu, zwrócić z funkcji ani trzymać w zmiennej globalnej.
+- **Uprawnienie można zawęzić, ale nie poszerzyć.** `Db` można przekazać tam, gdzie funkcja chce `DbRead`, ale nie odwrotnie.
+- **Uprawnienia stoją na końcu listy parametrów.** Pilnuje tego formatter, żeby było je widać w jednym miejscu.
+
+Kto wywołuje funkcję z uprawnieniem, musi to uprawnienie mieć. Agent nie przemyci wysyłki e-maila w funkcji, która miała tylko czytać z bazy, bo nie ma czym jej wykonać:
+
+```
+fn notify(id: UserId, receipt: Receipt, db: DbRead, mail: Mailer)
+  user = get_user(id, db)
+  send_receipt(user.email, receipt, mail)
+```
+
+Wbudowane typy uprawnień:
+
+| Typ | Na co pozwala | Zasób w `sowa.toml` |
+|---|---|---|
+| `Db` | czytać i zapisywać w bazie | adres bazy |
+| `DbRead` | tylko czytać z bazy | ten sam co `Db` |
+| `Clock` | odczytać bieżącą datę i czas | – |
+| `Random` | losować | – |
+| `Log` | pisać do logów | – |
+| `Mailer` | wysyłać e-maile przez jeden serwer | adres serwera |
+| `Http` | wysyłać zapytania pod jeden adres | adres bazowy, np. `https://api.bank.pl` |
+| `Files` | czytać i zapisywać pliki w jednym katalogu | katalog |
+
+Własnych typów uprawnień na razie nie ma.
+
+#### Zasoby: `[resources]` w `sowa.toml`
+
+Uprawnienia, które program w ogóle dostaje, wymienia `sowa.toml`:
 
 ```toml
-[effects]
-allowed = ["Db.read", "Db.write", "Clock", "Net"]
-
-[effects.files]
-"src/issuing.sowa" = ["Db.read", "Db.write", "Clock"]
-"src/sending.sowa" = ["Net"]
-
-[effects.rules.Net]
-why     = true
-approve = true
+[resources]
+db    = { type = "Db", url = "postgres://localhost/invoices" }
+clock = { type = "Clock" }
+mail  = { type = "Mailer", server = "smtp.firma.pl:587" }
 ```
 
-| Klucz | Co znaczy |
-|---|---|
-| `allowed` | efekty, które mogą wystąpić w projekcie; każdy inny to błąd |
-| `files` | w których plikach wolno użyć których efektów; plik, którego nie ma na liście, musi być czysty |
-| `rules.<efekt>.why` | funkcja z tym efektem musi mieć `why` |
-| `rules.<efekt>.approve = true` | funkcja, która dostaje ten efekt, czeka na zatwierdzenie przez człowieka (zob. niżej); zatwierdzenie obejmuje sygnaturę i efekty; w trybie `spec` taka zmiana stoi na górze listy w `sowa review` |
-| `rules.<efekt>.approve = "body"` | jak wyżej, ale ponowne zatwierdzenie także po każdej zmianie ciała funkcji |
-
 ```
-błąd: src/invoice.sowa: totals ma efekt Db.read, a w sowa.toml ten plik ma być czysty
-błąd: efekt Random nie jest dozwolony w projekcie (sowa.toml, [effects] allowed)
-błąd: send_invoice ma efekt Net, więc musi mieć why (sowa.toml, [effects.rules.Net])
-ostrzeżenie: notify_buyer dostała efekt Net i czeka na zatwierdzenie (sowa review)
+fn main(db: Db, clock: Clock, mail: Mailer)
 ```
 
-Bez sekcji `[effects]` projekt nie ma ograniczeń poza regułą z sygnatur.
+- Runtime przekazuje zasoby do `main` według nazw parametrów. Parametr bez zasobu o tej nazwie albo zasób innego typu to błąd kompilacji.
+- Skoro uprawnienia nie da się utworzyć w kodzie, każdy `Mailer` w programie to `smtp.firma.pl:587`. `mail.send(...)` nie przyjmuje adresu serwera. Człowiek zatwierdza raz: „faktury wolno wysyłać przez smtp.firma.pl”.
+- `sowa run` przekazuje te same adresy do runtime jako jedyne dozwolone połączenia. Przy kompilacji do TypeScriptu i uruchamianiu w Deno: `--allow-net=smtp.firma.pl:587,localhost:5432`. To druga linia obrony, na wypadek błędu w kompilatorze.
+- Nowy zasób to zmiana w `sowa.toml`, a ten plik jest pod CODEOWNERS.
 
-To przesuwa założenie z poziomu „opisowe” na „sprawdzane”. Zdanie „sieć tylko przy wysyłce” w `.md` może się zdezaktualizować, a wpis w `sowa.toml` nie. `approve` łączy się z zasadą nadrzędną: agent może dopisać funkcję, która zapisuje do bazy albo łączy się z siecią, ale nie wejdzie ona bez zgody człowieka.
+Nie ma osobnej listy „który plik może mieć jakie uprawnienia”. Pokazują to sygnatury w `src/`: jeśli żadna funkcja w `src/invoice.sowa` nie ma uprawnień, cały moduł jest czysty, razem z funkcjami pomocniczymi w `impl/`, bo nie mają skąd ich dostać.
 
-#### Zatwierdzanie: `sowa review`
+#### Funkcje przyjmujące funkcje
 
-Uzasadnienie i porównanie z innymi narzędziami: [zatwierdzanie.md](zatwierdzanie.md).
-
-Zatwierdzanie działa w trzech krokach. Tak samo zatwierdza się opisy z `docs.lock` (punkt 5 w [Co sprawdza kompilator](#co-sprawdza-kompilator)).
-
-**1. `sowa check` pokazuje, co czeka.** Lokalnie to ostrzeżenie, żeby nie blokować pracy. W CI (`sowa check --ci`) to błąd.
-
-```
-ostrzeżenie: notify_buyer (src/sending.sowa:21) dostała efekt Net i czeka na zatwierdzenie
-             uruchom: sowa review
-```
-
-**2. Człowiek przegląda przez `sowa review`.** Polecenie jest interaktywne i pokazuje po kolei wszystko, co czeka, razem z tym, czego potrzeba do decyzji: sygnaturę, efekty, `desc`, treść sekcji z `why` i miejsca wywołania.
+Lambda może użyć uprawnienia z otoczenia:
 
 ```
-$ sowa review
-
-[1/1] notify_buyer  src/sending.sowa:21  (nowa funkcja)
-
-  fn notify_buyer(invoice: Invoice) -> Sent | SendError
-    effects Net                                  ← wymaga zatwierdzenia (sowa.toml)
-
-    desc Wysyła nabywcy przypomnienie o płatności.
-    why decyzje/004-przypomnienia.md             → pokazać? [enter]
-
-  wywoływana z: remind_unpaid (src/payments.sowa:40)
-
-  Zatwierdzić Net dla notify_buyer? [t]ak / [n]ie / [p]omiń
+fn save_all(invoices: List<Invoice>, db: Db)
+  invoices.each(i => save_invoice(i, db))
 ```
 
-Po zatwierdzeniu w `effects.lock` pojawia się wiersz z hashem, osobą (z `git config user.email`) i datą:
+`each` nie ma w sygnaturze żadnego uprawnienia. Może zrobić tylko to, co przekazana funkcja, a tę wywołujący mógł zbudować tylko z uprawnień, które sam ma. Pełna reguła brzmi więc tak: funkcja, która nie ma w parametrach ani uprawnień, ani funkcji, jest czysta. Funkcja z parametrem-funkcją może zrobić to, co ta funkcja, i nic więcej.
 
-```
-notify_buyer  src/sending.sowa  Net  7e21c4  reviewer@intum.com  2026-09-27
-```
+Dzięki temu sygnatura `map` czy `each` zostaje prosta. Przy efektach w sygnaturze (`effects Net`) trzeba by efektów generycznych, jak wiersze efektów w Koce.
 
-**3. Zatwierdzenie egzekwuje review kodu.** Agent też ma terminal, więc może uruchomić `sowa review` albo dopisać wiersz do pliku `.lock`. Sam plik niczego nie gwarantuje. Gwarancję daje to, że pliki `*.lock` i `sowa.toml` należą do właściciela w CODEOWNERS:
+### Specyfikacja i kod
 
-```
-# .github/CODEOWNERS
-sowa.toml   @marcin
-*.lock      @marcin
-```
+Szczegóły, zagrożenia i porównanie z innymi językami: [specyfikacja.md](specyfikacja.md).
 
-- Agent może przygotować wpis, ale PR nie wejdzie bez zgody właściciela. Warunek: agent ma osobne konto bez prawa zatwierdzania i scalania, a ochrona `main` nie ma wyjątku dla adminów. Szczegóły w [zatwierdzanie.md](zatwierdzanie.md#kiedy-codeowners-nie-wystarcza).
-- Diff pliku `.lock` jest listą kontrolną dla recenzenta: widać w nim dokładnie, co się zatwierdza („notify_buyer: Net”).
-- Agent nie poluzuje też polityki w `sowa.toml` (`allowed`, `files`, `rules`) bez zgody człowieka.
-- W AGENTS.md projektu jest reguła, że agent nie uruchamia `sowa review` i nie edytuje plików `*.lock`, a gdy `sowa check` zgłasza oczekujące zatwierdzenia, przekazuje je człowiekowi.
-
-Bez PR albo gdy agent działa na koncie człowieka, można włączyć podpisywanie wpisów kluczem SSH, tak jak podpisuje się commity w gicie:
-
-```toml
-[review]
-approvers = ["reviewer@intum.com"]
-sign      = true
-```
-
-`sowa review` podpisuje wtedy każdy wpis, a `sowa check --ci` sprawdza podpis na liście `approvers`. Klucz musi wymagać potwierdzenia przy każdym użyciu (klucz sprzętowy, `ssh-add -c`), bo odblokowanego klucza w `ssh-agent` agent też może użyć. To opcja, a nie domyślne zachowanie, bo wymaga konfiguracji.
-
-#### Mapa efektów modułu: `sowa effects`
-
-Czasem nie chcesz zatwierdzać funkcji po kolei, tylko wiedzieć, gdzie w module powstają jakie efekty. `sowa effects` pokazuje to bez wchodzenia do funkcji. Raport jest pogrupowany po efektach, a nie po funkcjach:
-
-```
-$ sowa effects src/numbering.sowa
-
-src/numbering.sowa   dozwolone: Db.read, Db.write (sowa.toml)
-
-  Db.read   last_invoice_seq   ← save_with_next_number
-  Db.write  save_invoice       ← save_with_next_number
-
-  czyste: format_number
-```
-
-Przy efekcie stoi funkcja, w której on **powstaje**, czyli która sama wywołuje coś z tym efektem spoza modułu: z biblioteki albo z innego pliku. Po `przez` stoi wywołanie, z którego efekt przychodzi, np. `przez current_date()`, a po `←` funkcje z modułu, które ją wywołują i tylko przekazują efekt dalej. Dzięki temu lista zostaje krótka nawet w dużym module. Raport działa zawsze, bez konfiguracji, bo kompilator i tak liczy graf wywołań.
-
-Żeby mapa modułu wymagała zatwierdzenia, wpisz moduł w `[review.files]`:
-
-```toml
-[review.files]
-"src/numbering.sowa" = "effects"
-```
-
-- Zatwierdza się mapę modułu, a nie funkcje. `effects.lock` ma po jednym wierszu na efekt w module: efekt, funkcje, w których powstaje, hash, kto i kiedy.
-- Hash obejmuje tylko pary (efekt, funkcja, w której powstaje). Zmiana w ciele funkcji, nowa funkcja czysta albo nowa funkcja, która tylko przekazuje efekt, nie wymagają ponownego zatwierdzenia.
-- Nowy efekt w module albo nowe miejsce, w którym efekt powstaje, czeka na zatwierdzenie:
-
-```
-ostrzeżenie: src/numbering.sowa: zmieniła się mapa efektów i czeka na zatwierdzenie
-               + Db.write  reset_numbering
-             uruchom: sowa review
-```
-
-`[effects.files]` mówi, **jakie** efekty wolno mieć w pliku, a `[review.files]` każe zatwierdzać, **gdzie** w nim powstają. Gdy funkcja podlega też regule `approve` z `[effects.rules]`, `sowa review` pokazuje ją raz, a jedno zatwierdzenie zapisuje oba wiersze.
-
-### Tryby: `spec` i `code`
-
-Szczegóły, zagrożenia i porównanie z innymi językami: [tryby.md](tryby.md).
-
-Tryb mówi, co człowiek czyta. Ustawia się go w `sowa.toml`:
+Człowiek zatwierdza specyfikację, a kodu nie czyta. Specyfikacja leży w `src/`, a ciała funkcji w `impl/`:
 
 ```toml
 [project]
 src  = "src"
 impl = "impl"
-
-[review]
-mode = "spec"                    # domyślnie; albo "code"
-read = ["impl/numbering.sowa"]   # kod, który człowiek i tak czyta
 ```
 
-| | `spec` (domyślny) | `code` |
-|---|---|---|
-| co czyta człowiek | `src/` i `docs/`: typy, sygnatury, efekty, opisy, przykłady | całe funkcje |
-| gdzie są ciała funkcji | w `impl/`, w pliku o tej samej nazwie | w `src/`, pod dokumentacją |
-| co chroni CODEOWNERS | `src/`, `docs/`, `sowa.toml`, `*.lock`, pliki z `read` | `sowa.toml`, `*.lock` |
-
-W trybie `spec` plik w `src/` to specyfikacja modułu, bez ciał funkcji. Plik w `impl/` powtarza linię `fn` i `effects`, a pod nimi ma kod:
+Plik w `src/` to specyfikacja modułu, bez ciał funkcji. Plik w `impl/` powtarza linię `fn`, a pod nią ma kod:
 
 ```
 // src/types.sowa
@@ -291,29 +229,92 @@ fn read_nip(input: String) -> Nip | InvalidNip
   return digits as Nip or return InvalidNip
 ```
 
-- Sygnatura i `effects` w `impl/` muszą być identyczne jak w `src/`. Zmiana sygnatury wymaga więc zmiany w `src/`, a ta zgody człowieka.
-- `impl/` może mieć własne funkcje pomocnicze i typy. Są prywatne: spoza modułu widać tylko `src/`.
-- `example` w `src/` to specyfikacja, a w `impl/` to własne testy agenta.
+- Sygnatura w `impl/` musi być identyczna jak w `src/`, razem z uprawnieniami. Zmiana sygnatury wymaga więc zmiany w `src/`, a ta zgody człowieka.
+- `impl/` może mieć własne funkcje pomocnicze i typy. Są prywatne: spoza modułu widać tylko `src/`. Funkcja pomocnicza dostaje uprawnienie tylko od funkcji z `src/`, która je ma.
+- `example` i `property` w `src/` to specyfikacja, a w `impl/` własne testy agenta.
 - Wywołania bibliotek spoza Sowy mogą stać tylko w `src/`.
-- `impl/` nie ma właściciela w CODEOWNERS i jest zwinięty w PR (`impl/** linguist-generated=true` w `.gitattributes`). `sowa check` sprawdza, czy CODEOWNERS obejmuje `src/`, `docs/` i pliki z `read`.
+- `impl/` nie ma właściciela w CODEOWNERS i jest zwinięty w PR (`impl/** linguist-generated=true` w `.gitattributes`). `sowa check` sprawdza, czy CODEOWNERS obejmuje `src/`, `docs/`, `sowa.toml` i `docs.lock`.
 
-W trybie `code` nie ma `impl/`: funkcja ma ciało pod dokumentacją, jak w przykładach w tym dokumencie. Wtedy `approve`, mapa efektów modułu i `effects.lock` wskazują człowiekowi, które funkcje czytać.
+Kod wybranego modułu można też czytać: wystarczy dopisać plik z `impl/` do CODEOWNERS i wyłączyć mu zwijanie w `.gitattributes` (`impl/numbering.sowa -linguist-generated`). `sowa.toml` nic o tym nie wie.
 
-#### Efekty z zasobem
+### Zatwierdzanie
 
-Efekt można przypiąć do zasobu nazwanego w `sowa.toml`. Wtedy agent nie wyśle danych gdzie indziej, nawet w kodzie, którego nikt nie czyta:
+Uzasadnienie i porównanie z innymi narzędziami: [zatwierdzanie.md](zatwierdzanie.md).
+
+#### Zatwierdzenie na końcu
+
+1. **Agent buduje.** W jednym PR zmienia `src/`, `impl/` i `docs/` tyle razy, ile trzeba. Specyfikacja może się zmieniać razem z kodem. Nikt niczego jeszcze nie zatwierdza.
+2. **Całość działa.** Testy przechodzą, a człowiek może program uruchomić albo obejrzeć podgląd. Agent oznacza PR jako gotowy.
+3. **Człowiek zatwierdza raz.** CI wkleja do PR wynik `sowa review --base main`, czyli zmiany w znaczeniu względem `main`, a nie historię poprawek w PR. Osłabienia i usunięte testy są na górze (zob. niżej). Człowiek zatwierdza PR.
+4. **Po zatwierdzeniu specyfikacja stoi.** Agent może jeszcze poprawiać `impl/`, np. po uwagach z CI. `sowa check --ci` porównuje commit, na którym człowiek zatwierdził PR, z bieżącym. Jeśli od tego czasu zmienił się którykolwiek plik z właścicielem w CODEOWNERS, check nie przechodzi:
 
 ```
-fn send_invoice(invoice: Invoice) -> Sent | SendError
-  effects Net(mail)
+błąd: specyfikacja zmieniła się po zatwierdzeniu (zatwierdzone na 3f2a91c)
+        src/issuing.sowa
+      potrzebne ponowne zatwierdzenie PR
 ```
+
+Człowiek nie traci czasu na specyfikację, która w trakcie pracy i tak się zmieni. Zatwierdza wersję końcową, a jednocześnie widzi, że działa.
+
+Warunki: `sowa check --ci` jest wymaganym checkiem w ochronie `main`, a „Dismiss stale approvals” jest wyłączone, żeby poprawki w `impl/` nie kasowały zatwierdzenia. Agent ma osobne konto bez prawa zatwierdzania i scalania. Szczegóły w [zatwierdzanie.md](zatwierdzanie.md#kiedy-codeowners-nie-wystarcza).
+
+Zatwierdzenie jest jedno na PR i obejmuje całą specyfikację. Nie ma zatwierdzania funkcji po kolei ani plików z zatwierdzeniami poza `docs.lock`.
+
+#### `sowa review`
+
+Polecenie porównuje specyfikację z gałęzią bazową i pokazuje zmiany w znaczeniu, a nie w tekście:
+
+```
+$ sowa review --base main
+
+Specyfikacja (src/, docs/, sowa.toml): 5 zmian
+
+  [1] uprawnienie     send_reminder  src/sending.sowa:24   nowa funkcja z Mailer (mail: smtp.firma.pl:587)
+  [2] osłabienie      Percent        src/types.sowa:5      α <= 100  →  α <= 1000
+                                                           dopuszcza np. 101
+  [3] usunięty test   totals         src/invoice.sowa:50   property totals(lines, discount).net <= totals(lines, 0).net
+  [4] rozszerzenie    read_nip       src/types.sowa:24     parametr: String(len(α) <= 20)  →  String
+  [5] zwykłe          line_net       src/invoice.sowa:38   nowy example
+
+Opisy do przejrzenia (docs.lock): uzytkownik/faktury.md#rabat
+```
+
+Kategorie mają stałą kolejność i nie wymagają konfiguracji:
+
+| Kategoria | Co | Dlaczego tak wysoko |
+|---|---|---|
+| uprawnienie | funkcja dostaje nowe uprawnienie; nowy albo zmieniony zasób w `[resources]` | kod może zrobić coś, czego wcześniej nie mógł |
+| osłabienie | luźniejszy warunek w definicji typu albo w wyniku; nowy wariant błędu w wyniku | gwarancje, na których polega reszta programu, są słabsze |
+| usunięty test | usunięty albo zmieniony `example`, `property` lub blok `sowa` w `.md` | agent mógł dopasować test do kodu |
+| rozszerzenie | luźniejszy warunek na parametrze | funkcja przyjmuje więcej danych; to widać, ale niczego nie psuje |
+| zwykłe | reszta: nowy przykład, nowa czysta funkcja, zmiana `desc` | |
+
+Osłabienie rozpoznaje solver: sprawdza, czy stary warunek wynika z nowego. Jeśli nie wynika, pokazuje kontrprzykład, np. „dopuszcza 101”. Gdy solver nie umie tego rozstrzygnąć, np. przy arytmetyce nieliniowej, zmiana trafia do osłabień z dopiskiem „nie udało się porównać”. Lepiej pokazać za dużo, niż przepuścić osłabienie.
+
+Na końcu `sowa review` pyta o opisy, które mogły się zdezaktualizować. Potwierdzenie zapisuje wiersz w `docs.lock` (punkt 5 w [Co sprawdza kompilator](#co-sprawdza-kompilator)).
+
+#### Bez PR albo na jednym koncie
+
+Kto pracuje sam z agentem na jednym koncie, może zatwierdzać podpisanym commitem:
 
 ```toml
-[effects.resources]
-mail = "smtp.firma.pl:587"
+[review]
+approvers = ["reviewer@intum.com"]
+sign      = true
 ```
 
-Funkcje sieciowe przyjmują zasób zamiast adresu: `mail_send(mail, to, subject, pdf)`. Adres jako tekst, np. `http_post("https://gdzies.com", ...)`, się nie skompiluje. `sowa run` przekazuje zasoby do runtime jako jedyne dozwolone połączenia.
+`sowa review --approve` robi pusty commit podpisany kluczem SSH, a `sowa check --ci` sprawdza, czy podpis należy do osoby z `approvers` i czy od tego commitu nie zmieniła się specyfikacja. Klucz musi wymagać potwierdzenia przy każdym użyciu (klucz sprzętowy, `ssh-add -c`), bo odblokowanego klucza w `ssh-agent` agent też może użyć. To opcja, a nie domyślne zachowanie, bo wymaga konfiguracji.
+
+#### Drugi agent jako recenzent
+
+Opcjonalnie drugi agent, na osobnym koncie i najlepiej z innym modelem, może zatwierdzać PR-y, w których `sowa review` pokazuje tylko rozszerzenia i zwykłe zmiany:
+
+```toml
+[review]
+agent = "sowa-reviewer"   # konto agenta-recenzenta
+```
+
+`sowa check --ci` uznaje zatwierdzenie tego konta tylko wtedy, gdy w zmianie nie ma nowego uprawnienia, osłabienia, usuniętego testu ani zmiany w `docs.lock`. Wtedy potrzebny jest człowiek. Granicę wyznaczają kategorie z `sowa review`, a nie ocena agenta. Uzasadnienie i ryzyka: [zatwierdzanie.md](zatwierdzanie.md#drugi-agent-jako-recenzent).
 
 ### Błędy
 
@@ -322,8 +323,7 @@ Możliwe błędy są częścią typu wyniku i zapisuje się je przez `|`.
 ```
 type PaymentError = CardDeclined | NoFunds | Timeout
 
-fn charge(card: Card, amount: Price) -> Receipt | PaymentError
-  effects Net
+fn charge(card: Card, amount: Price, bank: Http) -> Receipt | PaymentError
 ```
 
 - `try` przekazuje błąd wyżej: jeśli wynik jest błędem, funkcja kończy się i go zwraca.
@@ -337,7 +337,7 @@ match charge(user.card, amount)
   Timeout      => return retry_later()
 ```
 
-### Dokumentacja: `desc`, `doc`, `why`, `example`
+### Dokumentacja: `desc`, `doc`, `why`, `example`, `property`
 
 Dokumentacja i założenia są częścią języka, a nie komentarzami. Kompilator je zna i sprawdza.
 
@@ -345,8 +345,8 @@ Każde założenie powinno trafić na najwyższy poziom, na jaki się da:
 
 | Poziom | Przykład | Zapis |
 |---|---|---|
-| sprawdzane | „rabat jest od 0 do 100”, „nie łączy się z siecią” | typ z warunkiem, `effects` |
-| testowane | „rabat 20% od 100 daje 80” | `example` |
+| sprawdzane | „rabat jest od 0 do 100”, „rabat nie zwiększa kwoty”, „nie łączy się z siecią” | typ z warunkiem, warunek wyniku, uprawnienia w parametrach |
+| testowane | „rabat 20% od 100 daje 80”, „rabat 0 nie zmienia kwoty” | `example`, `property` |
 | opisowe | co robi funkcja, instrukcja dla użytkownika, dlaczego tak | `desc`, `doc`, `why` |
 
 Każde słowo ma jedną formę, więc po samym słowie widać, czy to tekst, czy odnośnik:
@@ -357,22 +357,20 @@ Każde słowo ma jedną formę, więc po samym słowie widać, czy to tekst, czy
 | `doc` | dokumentacja dla użytkownika | ścieżka do pliku `.md`, opcjonalnie z `#sekcją` |
 | `why` | dlaczego tak: założenie, wymóg biznesowy albo decyzja | ścieżka do pliku `.md`, opcjonalnie z `#sekcją` |
 | `example` | przykład, który uruchamia się jako test i pojawia się w dokumentacji | wyrażenie |
+| `property` | warunek, który ma być prawdziwy dla dowolnych danych (zob. niżej) | wyrażenie z nazwami parametrów |
 
-Linie stoją pod sygnaturą w stałej kolejności: `effects`, `desc`, `doc`, `why`, `example`. Każdą z nich można powtórzyć, np. dwie linie `why`, gdy funkcja wynika z dwóch decyzji. `desc`, `doc` i `why` działają też pod definicją typu.
+Linie stoją pod sygnaturą w stałej kolejności: `desc`, `doc`, `why`, `example`, `property`. Każdą z nich można powtórzyć, np. dwie linie `why`, gdy funkcja wynika z dwóch decyzji. `desc`, `doc` i `why` działają też pod definicją typu.
 
-Funkcja ma cztery grupy oddzielone pustą linią, żeby się nie zlewały. Kolejności i odstępów pilnuje formatter:
+Funkcja ma trzy grupy oddzielone pustą linią, żeby się nie zlewały. Kolejności i odstępów pilnuje formatter:
 
-1. `effects`,
-2. opis: `desc`, `doc`, `why`,
-3. przykłady: `example`,
-4. kod.
+1. opis: `desc`, `doc`, `why`,
+2. przykłady: `example`, `property`,
+3. kod (w `impl/`).
 
 Przykłady są osobno, bo to kod, a nie tekst. Czyta się je inaczej niż opis, a przy kilku przykładach opis ginąłby w grupie.
 
 ```
-fn issue_invoice(form: InvoiceForm) -> Invoice | IssueError
-  effects Db.read, Db.write, Clock
-
+fn issue_invoice(form: InvoiceForm, db: Db, clock: Clock) -> Invoice(α.status == Issued) | IssueError
   doc uzytkownik/faktury.md#wystawianie-faktury
   why decyzje/002-numeracja-bez-luk.md
   why decyzje/003-wysylka-osobno.md
@@ -382,16 +380,20 @@ fn issue_invoice(form: InvoiceForm) -> Invoice | IssueError
 ```
 
 ```
-fn apply_discount(total: Money, pct: Percent) -> Money
+fn apply_discount(total: Money, pct: Percent) -> Money(α <= total)
   desc Odejmuje rabat procentowy od kwoty.
   doc rabaty.md#naliczanie-rabatu
   why decyzje/rabat-od-brutto.md
 
   example apply_discount(100, 20) == 80
-  example apply_discount(100, 0) == 100
+  property apply_discount(total, 0) == total
 
   return total - total * pct / 100
 ```
+
+Przykłady w tym dokumencie mają ciało pod dokumentacją, żeby było widać całą funkcję. W projekcie ciało leży w `impl/`.
+
+`property` to warunek, który ma być prawdziwy dla dowolnych danych. Nazwy parametrów funkcji oznaczają w nim dowolną wartość typu tego parametru. Dane generuje kompilator z typów z warunkami, np. dla `Percent` wartości brzegowe 0, 1, 99 i 100 oraz losowe. `example` sprawdza jeden przypadek, a `property` całą klasę przypadków, więc trudniej dopasować do niego kod. W `property` można użyć tylko nazw parametrów funkcji, pod którą stoi, i stałych.
 
 Brakującą grupę się pomija, bez podwójnych pustych linii. W typie z polami opis stoi na górze, a pola pod nią, po pustej linii.
 
@@ -433,7 +435,7 @@ Wartości domyślne są w języku, a projekt może je zmienić w `sowa.toml`:
 ```toml
 [limits]
 desc_lines    = 3   # linii w desc; dłuższy opis przenieś do .md i wskaż przez doc
-examples      = 3   # przykładów na funkcję; resztę przenieś do bloków sowa w .md
+examples      = 3   # example i property razem na funkcję; resztę przenieś do bloków sowa w .md
 example_lines = 5   # linii w jednym przykładzie
 ```
 
@@ -459,7 +461,7 @@ Blok ` ```sowa ` liczy się jako test każdej funkcji, którą wywołuje. Spadek
 ```
 desc Faktura, pozycje i sumy.
 why zalozenia.md#kwoty
-why zalozenia.md#obliczenia-i-efekty
+why zalozenia.md#obliczenia-i-uprawnienia
 
 type Line
   ...
@@ -478,7 +480,7 @@ type Line
    - Funkcja renderuje się jako nazwa z linkiem do sygnatury.
    - Sekcja `.md`, w której stoi `{Symbol}`, jest powiązana z tym symbolem w `docs.lock` (punkt 5), nawet jeśli żaden `doc` ani `why` na nią nie wskazuje.
 4. **Przykłady w `.md` są testami.** Blok kodu oznaczony `sowa` w pliku `.md` kompiluje się i uruchamia tak jak `example`.
-5. **Wykrywanie nieaktualnego opisu.** Tekstu nie da się sprawdzić, ale da się wykryć, że mógł się zdezaktualizować. Kompilator zapamiętuje hash sygnatury, warunków i efektów z chwili, gdy ktoś zatwierdził opis. Gdy się zmienią, zgłasza ostrzeżenie:
+5. **Wykrywanie nieaktualnego opisu.** Tekstu nie da się sprawdzić, ale da się wykryć, że mógł się zdezaktualizować. Kompilator zapamiętuje hash sygnatury z warunkami i uprawnieniami z chwili, gdy ktoś zatwierdził opis. Gdy się zmienią, zgłasza ostrzeżenie:
 
    ```
    ostrzeżenie: rabaty.md#naliczanie-rabatu nie był przeglądany
@@ -493,8 +495,7 @@ Jedna sekcja `.md` może opisywać kilka funkcji. Ostrzeżenie pojawia się wted
 
 Te pomysły padły, ale nie są jeszcze rozpisane. Szczegóły w [przemyslenia.md](przemyslenia.md).
 
-- `spec` z `requires` / `ensures` i generowaniem testów property-based
-- zapytania o program (`query callers(charge) where effects contains Net`)
+- zapytania o program (`query callers(charge) where takes Http`)
 - pochodzenie kodu (`@origin(agent: ..., reviewed: false)`) i polityki wdrożeń
 - procesy z supervisorem i obserwowalnym stanem, w stylu Erlanga
 - model pamięci i kompilacja (LLVM / WASM, własność jak w Ruście)
