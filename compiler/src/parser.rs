@@ -722,7 +722,9 @@ impl Parser {
                 loop {
                     let n = self.ident()?;
                     self.expect_sym(":")?;
-                    let v = self.add_expr()?;
+                    // Wartość pola to całe wyrażenie do przecinka, jak argument w P(pole: wartość):
+                    // `p with ok: p.n >= 0` to `p with ok: (p.n >= 0)`.
+                    let v = self.expr()?;
                     fields.push((n, v));
                     // Kolejne pole tylko wtedy, gdy po przecinku stoi `nazwa:`.
                     if self.is_sym(",") && matches!(self.peek_at(1), Tok::Ident(_)) && matches!(self.peek_at(2), Tok::Sym(":")) {

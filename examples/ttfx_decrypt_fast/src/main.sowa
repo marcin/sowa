@@ -1,0 +1,5 @@
+desc Punkt wejścia: czyta tekst i wypisuje animację.
+why zalozenia.md#wyjście
+
+fn main(random: Random, terminal: Terminal)
+  desc Czyta całe stdin i wypisuje na stdout wszystkie klatki efektu decrypt jedna po drugiej.

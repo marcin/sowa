@@ -83,7 +83,7 @@ Z samej sygnatury widać, że funkcja łączy się z bankiem, zapisuje do bazy i
 
 - [examples/invoices/](examples/invoices/): cały mały projekt do wystawiania faktur. Najszybciej pokazuje, o co chodzi.
 - [examples/fakturownia_web/](examples/fakturownia_web/): aplikacja webowa napisana tak, jakby pisał ją agent: wystawienie, zapis w bazie, wysyłka do KSeF. W [PR.md](examples/fakturownia_web/PR.md) jest wynik `sowa review`, z którego człowiek ją zatwierdza.
-- [examples/ttfx_decrypt/](examples/ttfx_decrypt/): efekt `decrypt` z [ttfx](https://github.com/omacom/ttfx) przepisany na Sowę. Wyjście jest identyczne z ttfx bajt w bajt, a przykład służy do pomiaru szybkości (niżej).
+- [examples/ttfx_decrypt/](examples/ttfx_decrypt/): efekt `decrypt` z [ttfx](https://github.com/omacom/ttfx) przepisany na Sowę. Wyjście jest identyczne z ttfx bajt w bajt, a przykład służy do pomiaru szybkości (niżej). [examples/ttfx_decrypt_fast/](examples/ttfx_decrypt_fast/) to ten sam efekt z inną pętlą animacji: w każdej klatce przelicza tylko zmienione wiersze. W Ruście jest ok. 1,3–1,6 raza szybszy od ttfx.
 - [docs/specyfikacja.md](docs/specyfikacja.md): specyfikacja i kod osobno, izolacja, uprawnienia, co blokuje które zagrożenie.
 - [docs/zatwierdzanie.md](docs/zatwierdzanie.md): zatwierdzenie na końcu, `sowa review`, `docs.lock`, CODEOWNERS i kiedy to nie wystarcza.
 - [docs/zalozenia.md](docs/zalozenia.md): zasady i ustalona składnia.

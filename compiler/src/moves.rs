@@ -4,7 +4,8 @@
 // rekord w miejscu, gdy nikt inny go nie trzyma. Żeby tak było, ostatni odczyt zmiennej przenosi
 // wartość (std::mem::take) zamiast ją klonować. Analiza idzie od końca bloku i pamięta zmienne,
 // które będą jeszcze czytane. W pętli za żywe uznaje wszystkie zmienne z jej ciała, poza `x = f(x)`,
-// gdzie stara wartość x i tak znika.
+// gdzie stara wartość x i tak znika. Gdy ostatni odczyt to pole (`x.f`), generator wyjmuje samo
+// pole bez klonowania, a reszta rekordu znika razem ze zmienną.
 //
 // Odczyt zmiennej nie ma skutków ubocznych, więc w liście argumentów generator liczy najpierw
 // argumenty, które nie są samą zmienną, a zmienne na końcu (args_order). Analiza przyjmuje tę samą
@@ -25,6 +26,8 @@ struct Occ<'e> {
     name: &'e str,
     at: usize,
     movable: bool,
+    // Odczyt pola zmiennej (`x.f`): przeniesienie wyjmuje samo pole, a at to adres wyrażenia z polem.
+    field: bool,
 }
 
 // Kolejność listy argumentów: najpierw wyrażenia, potem same zmienne.
@@ -41,7 +44,7 @@ fn occs<'e>(e: &'e Expr, out: &mut Vec<Occ<'e>>) {
     };
     match &e.kind {
         ExprKind::Int(_) | ExprKind::Dec(_) | ExprKind::Str(_) | ExprKind::Bool(_) => {}
-        ExprKind::Ident(n) => out.push(Occ { name: n, at: key(e), movable: true }),
+        ExprKind::Ident(n) => out.push(Occ { name: n, at: key(e), movable: true, field: false }),
         ExprKind::Html(segs) => {
             for s in segs {
                 if let HtmlSeg::Expr(x) = s {
@@ -54,7 +57,7 @@ fn occs<'e>(e: &'e Expr, out: &mut Vec<Occ<'e>>) {
         ExprKind::Call { name, args } if BY_REF.contains(&name.as_str()) => {
             for x in args_order(&args.iter().map(|a| &a.value).collect::<Vec<_>>()) {
                 match &x.kind {
-                    ExprKind::Ident(n) => out.push(Occ { name: n, at: key(x), movable: false }),
+                    ExprKind::Ident(n) => out.push(Occ { name: n, at: key(x), movable: false, field: false }),
                     _ => occs(x, out),
                 }
             }
@@ -67,8 +70,8 @@ fn occs<'e>(e: &'e Expr, out: &mut Vec<Occ<'e>>) {
             }
         }
         ExprKind::Field { obj, .. } => match &obj.kind {
-            // Pole zmiennej generator czyta przez referencję.
-            ExprKind::Ident(n) => out.push(Occ { name: n, at: key(obj), movable: false }),
+            // Pole zmiennej: przy ostatnim odczycie zmiennej generator wyjmuje pole bez klonowania.
+            ExprKind::Ident(n) => out.push(Occ { name: n, at: key(e), movable: true, field: true }),
             _ => occs(obj, out),
         },
         ExprKind::Bin { l, r, .. } => {
@@ -159,11 +162,12 @@ fn ty_names<'e>(t: &'e TypeExpr, out: &mut Vec<Occ<'e>>) {
     }
 }
 
-// Czy w wyrażeniu jest przenoszony odczyt zmiennej n.
+// Czy w wyrażeniu jest przenoszony odczyt zmiennej n. Wyjęte pole się nie liczy: zmienną
+// z referencji generator i tak czyta wtedy przez klon pola.
 pub fn moved_in(e: &Expr, n: &str, moves: &Moves) -> bool {
     let mut o = vec![];
     occs(e, &mut o);
-    o.iter().any(|x| x.name == n && moves.contains(&x.at))
+    o.iter().any(|x| x.name == n && !x.field && moves.contains(&x.at))
 }
 
 fn names(ss: &[Stmt]) -> HashSet<String> {
@@ -296,7 +300,7 @@ impl Live<'_> {
 pub fn moved_any(ss: &[Stmt], n: &str, moves: &Moves) -> bool {
     let mut o = vec![];
     pinned_stmts(ss, &mut o);
-    o.iter().any(|x| x.name == n && moves.contains(&x.at))
+    o.iter().any(|x| x.name == n && !x.field && moves.contains(&x.at))
 }
 
 fn sets<'e>(ss: &'e [Stmt], out: &mut Vec<&'e Stmt>) {
