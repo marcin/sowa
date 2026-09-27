@@ -18,6 +18,8 @@ struct Ck<'a> {
     env: &'a Env<'a>,
     errs: Vec<Diag>,
     warns: Vec<Diag>,
+    // Głębokość lambd: return w lambdzie nie wychodzi z funkcji, więc nie sprawdza typu wyniku.
+    lam: usize,
 }
 
 pub fn check(p: &Project, env: &Env) -> (Vec<Diag>, Vec<Diag>) {
@@ -34,6 +36,7 @@ pub fn check(p: &Project, env: &Env) -> (Vec<Diag>, Vec<Diag>) {
         db_ty,
         errs: vec![],
         warns: vec![],
+        lam: 0,
     };
     ck.signatures();
     ck.resources();
@@ -48,7 +51,7 @@ pub fn check(p: &Project, env: &Env) -> (Vec<Diag>, Vec<Diag>) {
                     if let Some(body) = &d.body {
                         let mut sc = Scopes::new();
                         for pr in &d.params {
-                            sc.declare(&pr.name, false, pr.line, Some(&pr.ty));
+                            sc.declare(&pr.name, false, pr.line, Some(pr.ty.clone()));
                         }
                         ck.block(body, &mut sc, f, d);
                         ck.unused(&mut sc, f, true);
@@ -71,27 +74,28 @@ pub fn check(p: &Project, env: &Env) -> (Vec<Diag>, Vec<Diag>) {
     (ck.errs, ck.warns)
 }
 
-struct Var<'a> {
+struct Var {
     name: String,
     is_var: bool,
     used: bool,
     line: usize,
-    ty: Option<&'a TypeExpr>,
+    // Typ z sygnatury (parametr) albo wywnioskowany z wartości; None, gdy nieznany.
+    ty: Option<TypeExpr>,
 }
 
-struct Scopes<'a> {
-    s: Vec<Vec<Var<'a>>>,
-    done: Vec<Var<'a>>,
+struct Scopes {
+    s: Vec<Vec<Var>>,
+    done: Vec<Var>,
 }
 
-impl<'a> Scopes<'a> {
+impl Scopes {
     fn new() -> Self {
         Scopes { s: vec![vec![]], done: vec![] }
     }
-    fn find(&mut self, n: &str) -> Option<&mut Var<'a>> {
+    fn find(&mut self, n: &str) -> Option<&mut Var> {
         self.s.iter_mut().rev().flat_map(|s| s.iter_mut()).find(|v| v.name == n)
     }
-    fn declare(&mut self, n: &str, is_var: bool, line: usize, ty: Option<&'a TypeExpr>) {
+    fn declare(&mut self, n: &str, is_var: bool, line: usize, ty: Option<TypeExpr>) {
         self.s.last_mut().unwrap().push(Var {
             name: n.to_string(),
             is_var,
@@ -477,7 +481,7 @@ impl<'a> Ck<'a> {
         }
     }
 
-    fn block(&mut self, stmts: &'a [Stmt], sc: &mut Scopes<'a>, f: &SourceFile, d: &FnDecl) {
+    fn block(&mut self, stmts: &'a [Stmt], sc: &mut Scopes, f: &SourceFile, d: &FnDecl) {
         sc.push();
         for s in stmts {
             self.stmt(s, sc, f, d);
@@ -485,44 +489,53 @@ impl<'a> Ck<'a> {
         sc.pop();
     }
 
-    fn stmt(&mut self, s: &'a Stmt, sc: &mut Scopes<'a>, f: &SourceFile, d: &FnDecl) {
+    fn stmt(&mut self, s: &'a Stmt, sc: &mut Scopes, f: &SourceFile, d: &FnDecl) {
         match s {
             Stmt::Set { name, is_var, expr, line } => {
                 self.expr(expr, sc, f, d);
+                let t = self.local_ty(expr, sc);
                 if *is_var {
                     if sc.find(name).is_some() {
                         self.err(&f.path, *line, format!("{} jest już zdefiniowane; nazwy się nie przesłaniają", name));
                     }
-                    sc.declare(name, true, *line, None);
+                    sc.declare(name, true, *line, t);
                 } else {
                     match sc.find(name) {
-                        Some(v) if v.is_var => v.used = true,
+                        Some(v) if v.is_var => {
+                            v.used = true;
+                            let old = v.ty.clone();
+                            self.reassign(name, old, t, *line, sc, f);
+                        }
                         Some(_) => self.err(&f.path, *line, format!("{} jest niezmienne, użyj var", name)),
-                        None => sc.declare(name, false, *line, None),
+                        None => sc.declare(name, false, *line, t),
                     }
                 }
             }
-            Stmt::Return { expr, .. } => {
+            Stmt::Return { expr, line } => {
                 if let Some(e) = expr {
                     self.expr(e, sc, f, d);
+                    self.ret_fits(e, *line, sc, f, d);
                 }
             }
             Stmt::Expr { expr, .. } => self.expr(expr, sc, f, d),
-            Stmt::If { cond, then, els, .. } => {
+            Stmt::If { cond, then, els, line } => {
                 self.expr(cond, sc, f, d);
+                self.want_bool(cond, "warunek if", *line, sc, f);
                 self.block(then, sc, f, d);
                 if let Some(e) = els {
                     self.block(e, sc, f, d);
                 }
             }
-            Stmt::While { cond, body, .. } => {
+            Stmt::While { cond, body, line } => {
                 self.expr(cond, sc, f, d);
+                self.want_bool(cond, "warunek while", *line, sc, f);
                 self.block(body, sc, f, d);
             }
             Stmt::For { var, iter, body, line } => {
                 self.expr(iter, sc, f, d);
+                let el = self.ty(iter, sc).and_then(|t| self.elem(&t));
                 sc.push();
-                self.bind(var, *line, sc, f);
+                self.bind(var, *line, sc, f, el);
                 self.block(body, sc, f, d);
                 sc.pop();
             }
@@ -530,10 +543,12 @@ impl<'a> Ck<'a> {
                 for e in subjects {
                     self.expr(e, sc, f, d);
                 }
+                let tys: Vec<Option<TypeExpr>> = subjects.iter().map(|e| self.local_ty(e, sc)).collect();
                 for arm in arms {
                     sc.push();
-                    for p in &arm.pats {
-                        self.pat(p, arm.line, sc, f);
+                    for (k, p) in arm.pats.iter().enumerate() {
+                        let t = tys.get(k).cloned().flatten();
+                        self.pat(p, t, arm.line, sc, f);
                     }
                     self.block(&arm.body, sc, f, d);
                     sc.pop();
@@ -543,20 +558,22 @@ impl<'a> Ck<'a> {
         }
     }
 
-    fn bind(&mut self, n: &str, line: usize, sc: &mut Scopes<'a>, f: &SourceFile) {
+    fn bind(&mut self, n: &str, line: usize, sc: &mut Scopes, f: &SourceFile, ty: Option<TypeExpr>) {
         if sc.find(n).is_some() {
             self.err(&f.path, line, format!("{} jest już zdefiniowane; nazwy się nie przesłaniają", n));
         }
-        sc.declare(n, false, line, None);
+        sc.declare(n, false, line, ty);
     }
 
-    fn pat(&mut self, p: &Pat, line: usize, sc: &mut Scopes<'a>, f: &SourceFile) {
+    // Wzorzec dostaje typ podmiotu: `x` cały, `[a, b]` element listy, `Wariant v` sam wariant.
+    fn pat(&mut self, p: &Pat, ty: Option<TypeExpr>, line: usize, sc: &mut Scopes, f: &SourceFile) {
         match p {
             Pat::Wild | Pat::Str(_) => {}
-            Pat::Bind(n) => self.bind(n, line, sc, f),
+            Pat::Bind(n) => self.bind(n, line, sc, f, ty),
             Pat::List(ps) => {
+                let el = ty.and_then(|t| self.elem(&t));
                 for p in ps {
-                    self.pat(p, line, sc, f);
+                    self.pat(p, el.clone(), line, sc, f);
                 }
             }
             Pat::Name { name, bind } => {
@@ -564,19 +581,71 @@ impl<'a> Ck<'a> {
                     self.err(&f.path, line, format!("nieznany wariant albo typ {}", name));
                 }
                 if let Some(b) = bind {
-                    self.bind(b, line, sc, f);
+                    self.bind(b, line, sc, f, Some(named(name)));
                 }
             }
         }
     }
 
-    // match po wyniku funkcji albo parametrze: każdy liść typu musi mieć gałąź (albo `_`).
-    fn exhaustive(&mut self, subjects: &[Expr], arms: &[Arm], line: usize, sc: &mut Scopes<'a>, f: &SourceFile) {
+    // Typ nowej zmiennej lokalnej. Uprawnienia idą dalej tylko przez nazwę parametru, więc zmienna
+    // z przypisanym uprawnieniem nie dostaje jego typu.
+    fn local_ty(&self, e: &Expr, sc: &mut Scopes) -> Option<TypeExpr> {
+        self.ty(e, sc).filter(|t| !is_cap(t))
+    }
+
+    // `x = wartość` dla var: podstawa typu nie może się zmienić. Int i Money się mieszają, a zmienna
+    // z Int, do której trafia Money, ma odtąd typ Money. Lista bez znanego elementu (`[]`) dostaje
+    // typ pierwszej listy ze znanym elementem.
+    fn reassign(&mut self, n: &str, old: Option<TypeExpr>, new: Option<TypeExpr>, line: usize, sc: &mut Scopes, f: &SourceFile) {
+        let (Some(old), Some(new)) = (old, new) else { return };
+        let (Some(a), Some(b)) = (self.base(&old, 0), self.base(&new, 0)) else { return };
+        let upgrade = if fits(&a, &b) {
+            a == "List" && self.elem(&old).is_none() && self.elem(&new).is_some()
+        } else if fits(&b, &a) {
+            true
+        } else {
+            self.err(&f.path, line, format!("{} ma typ {}, a dostaje {}", n, old, b));
+            false
+        };
+        if upgrade {
+            if let Some(v) = sc.find(n) {
+                v.ty = Some(new);
+            }
+        }
+    }
+
+    // return w funkcji: wartość o znanej podstawie typu musi pasować do któregoś liścia wyniku.
+    // Liść bez podstawy (typ ogólny, unia bez nazwy) wyłącza sprawdzenie, a wariant nie pasuje do
+    // wartości prostej ani rekordu.
+    fn ret_fits(&mut self, e: &Expr, line: usize, sc: &mut Scopes, f: &SourceFile, d: &FnDecl) {
+        if self.lam > 0 {
+            return;
+        }
+        let (Some(ret), Some(have)) = (&d.ret, self.kind(e, sc)) else { return };
+        for leaf in self.env.leaves(ret) {
+            match self.base(&named(&leaf), 0) {
+                Some(b) if fits(&b, &have) => return,
+                Some(_) => {}
+                None if self.env.variants.contains_key(&leaf) => {}
+                None => return,
+            }
+        }
+        self.err(&f.path, line, format!("{} zwraca {}, a return daje {}", d.name, ret, have));
+    }
+
+    fn want_bool(&mut self, e: &Expr, what: &str, line: usize, sc: &mut Scopes, f: &SourceFile) {
+        if let Some(k) = self.kind(e, sc).filter(|k| k != "Bool") {
+            self.err(&f.path, line, format!("{} musi być Bool, a jest {}", what, k));
+        }
+    }
+
+    // match po wyniku funkcji albo zmiennej o znanym typie: każdy liść typu musi mieć gałąź (albo `_`).
+    fn exhaustive(&mut self, subjects: &[Expr], arms: &[Arm], line: usize, sc: &mut Scopes, f: &SourceFile) {
         if arms.iter().any(|a| a.pats.iter().all(|p| matches!(p, Pat::Wild | Pat::Bind(_)))) {
             return;
         }
         for (k, subj) in subjects.iter().enumerate() {
-            let Some(ty) = self.infer(subj, sc) else { continue };
+            let Some(ty) = self.ty(subj, sc) else { continue };
             let leaves = self.env.leaves(&ty);
             if leaves.iter().any(|l| PRIMS.contains(&l.as_str()) || l == "List") {
                 continue;
@@ -612,16 +681,129 @@ impl<'a> Ck<'a> {
         }
     }
 
-    // Mała inferencja: typ zmiennej z parametru albo z przypisania wyniku funkcji.
-    fn infer(&self, e: &Expr, sc: &mut Scopes<'a>) -> Option<TypeExpr> {
+    // Typ wyrażenia, gdy da się go ustalić bez pełnej inferencji: stałe, zmienne (parametry i lokalne),
+    // pola, wywołania, konstruktory, operatory, `as`, `with`, `try` i metody list. W innych razach None.
+    fn ty(&self, e: &Expr, sc: &mut Scopes) -> Option<TypeExpr> {
+        let n = |s: &str| Some(named(s));
         match &e.kind {
-            ExprKind::Ident(n) => sc.find(n).and_then(|v| v.ty.cloned()),
-            ExprKind::Call { name, .. } => self.env.fns.get(name).and_then(|i| i.decl().ret.clone()),
-            _ => None,
+            ExprKind::Int(_) => n("Int"),
+            ExprKind::Dec(_) => n("Money"),
+            ExprKind::Str(_) => n("String"),
+            ExprKind::Bool(_) | ExprKind::Not(_) | ExprKind::Is { .. } => n("Bool"),
+            ExprKind::Html(_) => n("Html"),
+            ExprKind::List(xs) => Some(list_of(xs.iter().find_map(|x| self.ty(x, sc)))),
+            ExprKind::Ident(x) => match sc.find(x) {
+                Some(v) => v.ty.clone(),
+                None if self.env.variants.contains_key(x) => n(x),
+                None => None,
+            },
+            ExprKind::Field { obj, name } => {
+                let t = self.ty(obj, sc)?;
+                self.field_ty(&t, name)
+            }
+            ExprKind::Call { name, args } => {
+                if let Some(i) = self.env.fns.get(name) {
+                    return i.decl().ret.clone();
+                }
+                if self.env.record_fields(name).is_some() || self.env.variants.contains_key(name) {
+                    return n(name);
+                }
+                let arg = |k: usize, sc: &mut Scopes| args.get(k).and_then(|a| self.ty(&a.value, sc));
+                match name.as_str() {
+                    "len" => n("Int"),
+                    "to_string" | "to_json" | "trim" | "lower" | "upper" | "remove" | "drop_prefix" | "pad_left" | "join" | "char" => n("String"),
+                    "starts_with" | "contains" | "matches" | "only_digits" | "nip_checksum_ok" | "valid_email" => n("Bool"),
+                    "segments" | "split" | "chars" => Some(list_of(n("String"))),
+                    "at" => arg(0, sc).and_then(|t| self.elem(&t)),
+                    "distinct" | "sort_by" => arg(0, sc),
+                    _ => None,
+                }
+            }
+            ExprKind::Method { obj, name, args, .. } => {
+                let t = self.ty(obj, sc)?;
+                match (self.base(&t, 0)?.as_str(), name.as_str()) {
+                    ("List", "filter" | "reverse") => Some(t),
+                    ("List", "map") => {
+                        let el = self.elem(&t);
+                        let r = match args.first().map(|a| &a.value.kind) {
+                            Some(ExprKind::Lambda {
+                                param,
+                                body: LambdaBody::Expr(x),
+                            }) => {
+                                sc.push();
+                                sc.declare(param, false, 0, el);
+                                let r = self.ty(x, sc);
+                                sc.s.pop();
+                                r
+                            }
+                            _ => None,
+                        };
+                        Some(list_of(r))
+                    }
+                    ("Clock", "now") => n("DateTime"),
+                    ("Clock", "today") => n("Date"),
+                    ("Random", "int") => n("Int"),
+                    _ => None,
+                }
+            }
+            ExprKind::Bin { op, l, r } => match *op {
+                "==" | "!=" | "<" | ">" | "<=" | ">=" | "&&" | "||" => n("Bool"),
+                _ => {
+                    let (lt, rt) = (self.ty(l, sc)?, self.ty(r, sc)?);
+                    let (a, b) = (self.base(&lt, 0)?, self.base(&rt, 0)?);
+                    match (a.as_str(), b.as_str()) {
+                        ("Int", "Int") => n("Int"),
+                        ("Int" | "Money", "Int" | "Money") => n("Money"),
+                        ("String", "String") if *op == "+" => n("String"),
+                        ("List", "List") if *op == "+" => Some(if self.elem(&lt).is_some() { lt } else { rt }),
+                        _ => None,
+                    }
+                }
+            },
+            ExprKind::Neg(x) => self.ty(x, sc),
+            ExprKind::As { ty, .. } => Some(ty.clone()),
+            ExprKind::With { e: x, .. } => self.ty(x, sc),
+            // `try f(...)` daje pierwszy wariant wyniku: resztę, czyli błędy, zabiera try.
+            ExprKind::Try(x) => match self.ty(x, sc)? {
+                TypeExpr::Union(v) => v.into_iter().next(),
+                t => Some(t),
+            },
+            ExprKind::Lambda { .. } => None,
         }
     }
 
-    fn expr(&mut self, e: &'a Expr, sc: &mut Scopes<'a>, f: &SourceFile, d: &FnDecl) {
+    // Typ pola rekordu, wbudowanego rekordu albo wariantu z danymi.
+    fn field_ty(&self, t: &TypeExpr, name: &str) -> Option<TypeExpr> {
+        if let Some(r) = self.base(t, 0) {
+            if let Some(fs) = self.record(&r) {
+                return fs.iter().find(|x| x.name == name).map(|x| x.ty.clone());
+            }
+            if let Some((_, fs)) = BUILTIN_RECORDS.iter().find(|(b, _)| *b == r) {
+                return fs.iter().find(|(x, _)| *x == name).map(|(_, t)| named(t));
+            }
+        }
+        let TypeExpr::Name { name: v, .. } = t else { return None };
+        let fs = self.env.variants.get(v)?.fields?;
+        fs.iter().find(|x| x.name == name).map(|x| x.ty.clone())
+    }
+
+    // Typ elementu listy, także za aliasem (`type Lines = List<Line>`); None, gdy nieznany.
+    fn elem(&self, t: &TypeExpr) -> Option<TypeExpr> {
+        let mut t = t;
+        for _ in 0..20 {
+            let TypeExpr::Name { name, args, .. } = t else { return None };
+            if name == "List" {
+                return args.first().cloned();
+            }
+            match self.env.types.get(name) {
+                Some((TypeDecl { body: TypeBody::Rhs(ts), .. }, _)) if ts.len() == 1 => t = &ts[0],
+                _ => return None,
+            }
+        }
+        None
+    }
+
+    fn expr(&mut self, e: &'a Expr, sc: &mut Scopes, f: &SourceFile, d: &FnDecl) {
         match &e.kind {
             ExprKind::Ident(n) => {
                 if let Some(v) = sc.find(n) {
@@ -641,8 +823,13 @@ impl<'a> Ck<'a> {
                 }
             }
             ExprKind::Call { name, args } => {
+                // Lambda w sort_by(lista, x => ...) dostaje element listy.
+                let el = match args.first() {
+                    Some(a) if !self.env.fns.contains_key(name) => self.ty(&a.value, sc).and_then(|t| self.elem(&t)),
+                    _ => None,
+                };
                 for a in args {
-                    self.expr(&a.value, sc, f, d);
+                    self.lambda(&a.value, el.clone(), sc, f, d);
                 }
                 self.constructor(name, args, e.line, f);
                 if self.record(name).is_some() && !self.env.fns.contains_key(name) {
@@ -652,6 +839,7 @@ impl<'a> Ck<'a> {
                 }
                 if let Some(info) = self.env.fns.get(name) {
                     self.cap_args(info.decl(), args, sc, e.line, f);
+                    self.arg_types(info.decl(), args, sc, e.line, f);
                 } else if let Some((n, _)) = builtin_fn(name) {
                     if args.len() != n {
                         self.err(&f.path, e.line, format!("{} bierze {} argumentów, a dostał {}", name, n, args.len()));
@@ -660,36 +848,38 @@ impl<'a> Ck<'a> {
             }
             ExprKind::Method { obj, name, args, .. } => {
                 self.expr(obj, sc, f, d);
+                let ot = self.ty(obj, sc);
+                // Parametr lambdy: Db w transaction, element listy w map i filter.
+                let pt = match name.as_str() {
+                    "transaction" => Some(self.db_ty.clone()),
+                    "map" | "filter" => ot.as_ref().and_then(|t| self.elem(t)),
+                    _ => None,
+                };
                 for a in args {
-                    match &a.value.kind {
-                        ExprKind::Lambda { param, body } if name == "transaction" => {
-                            sc.push();
-                            self.bind(param, a.value.line, sc, f);
-                            if let Some(v) = sc.find(param) {
-                                v.ty = Some(self.db_ty);
-                            }
-                            match body {
-                                LambdaBody::Expr(x) => self.expr(x, sc, f, d),
-                                LambdaBody::Block(b) => self.block(b, sc, f, d),
-                            }
-                            sc.pop();
+                    self.lambda(&a.value, pt.clone(), sc, f, d);
+                }
+                if let (ExprKind::Ident(o), Some(TypeExpr::Name { name: t, .. })) = (&obj.kind, &ot) {
+                    if let Some((_, ms)) = CAP_METHODS.iter().find(|(c, _)| c == t) {
+                        if !ms.contains(&name.as_str()) {
+                            self.err(&f.path, e.line, format!("{} ({}) nie ma metody {}; dostępne: {}", o, t, name, ms.join(", ")));
                         }
-                        _ => self.expr(&a.value, sc, f, d),
                     }
                 }
-                if let ExprKind::Ident(o) = &obj.kind {
-                    if let Some(TypeExpr::Name { name: t, .. }) = sc.find(o).and_then(|v| v.ty) {
-                        if let Some((_, ms)) = CAP_METHODS.iter().find(|(c, _)| c == t) {
-                            if !ms.contains(&name.as_str()) {
-                                self.err(&f.path, e.line, format!("{} ({}) nie ma metody {}; dostępne: {}", o, t, name, ms.join(", ")));
-                            }
-                        } else if t == "List" && !LIST_METHODS.contains(&name.as_str()) {
-                            self.err(&f.path, e.line, format!("lista nie ma metody {}; dostępne: {}", name, LIST_METHODS.join(", ")));
-                        }
-                    }
+                if self.kind(obj, sc).as_deref() == Some("List") && !LIST_METHODS.contains(&name.as_str()) {
+                    self.err(&f.path, e.line, format!("lista nie ma metody {}; dostępne: {}", name, LIST_METHODS.join(", ")));
                 }
             }
-            ExprKind::Field { obj, .. } | ExprKind::Not(obj) | ExprKind::Neg(obj) => self.expr(obj, sc, f, d),
+            ExprKind::Field { obj, .. } => self.expr(obj, sc, f, d),
+            ExprKind::Not(x) => {
+                self.expr(x, sc, f, d);
+                self.want_bool(x, "argument !", e.line, sc, f);
+            }
+            ExprKind::Neg(x) => {
+                self.expr(x, sc, f, d);
+                if let Some(k) = self.kind(x, sc).filter(|k| !is_num(k)) {
+                    self.err(&f.path, e.line, format!("minus działa na liczbach, a dostaje {}", k));
+                }
+            }
             ExprKind::Bin { op, l, r } => {
                 self.expr(l, sc, f, d);
                 self.expr(r, sc, f, d);
@@ -702,12 +892,17 @@ impl<'a> Ck<'a> {
                         }
                     }
                 }
+                self.bin_types(op, l, r, e.line, sc, f);
             }
             ExprKind::Is { e: x, .. } => self.expr(x, sc, f, d),
             ExprKind::As { e: x, alt, .. } => {
                 self.expr(x, sc, f, d);
                 match alt.as_deref() {
-                    Some(Alt::Value(v)) | Some(Alt::Return(Some(v))) => self.expr(v, sc, f, d),
+                    Some(Alt::Value(v)) => self.expr(v, sc, f, d),
+                    Some(Alt::Return(Some(v))) => {
+                        self.expr(v, sc, f, d);
+                        self.ret_fits(v, e.line, sc, f, d);
+                    }
                     Some(Alt::Block(b)) => self.block(b, sc, f, d),
                     _ => {}
                 }
@@ -722,15 +917,7 @@ impl<'a> Ck<'a> {
                     self.field_types(&r, &given, e.line, sc, f);
                 }
             }
-            ExprKind::Lambda { param, body } => {
-                sc.push();
-                self.bind(param, e.line, sc, f);
-                match body {
-                    LambdaBody::Expr(x) => self.expr(x, sc, f, d),
-                    LambdaBody::Block(b) => self.block(b, sc, f, d),
-                }
-                sc.pop();
-            }
+            ExprKind::Lambda { .. } => self.lambda(e, None, sc, f, d),
             ExprKind::Try(x) => {
                 self.expr(x, sc, f, d);
                 self.try_errors(x, e.line, f, d);
@@ -739,8 +926,66 @@ impl<'a> Ck<'a> {
         }
     }
 
+    // Lambda z parametrem typu pt (None: nieznany); inne wyrażenie zwyczajnie.
+    fn lambda(&mut self, e: &'a Expr, pt: Option<TypeExpr>, sc: &mut Scopes, f: &SourceFile, d: &FnDecl) {
+        let ExprKind::Lambda { param, body } = &e.kind else {
+            return self.expr(e, sc, f, d);
+        };
+        sc.push();
+        self.bind(param, e.line, sc, f, pt);
+        self.lam += 1;
+        match body {
+            LambdaBody::Expr(x) => self.expr(x, sc, f, d),
+            LambdaBody::Block(b) => self.block(b, sc, f, d),
+        }
+        self.lam -= 1;
+        sc.pop();
+    }
+
+    // Operatory na wartościach o znanej podstawie typu. Int i Money liczą się razem, `+` łączy też
+    // teksty i listy, a porównania wymagają tego samego typu po obu stronach.
+    fn bin_types(&mut self, op: &str, l: &Expr, r: &Expr, line: usize, sc: &mut Scopes, f: &SourceFile) {
+        if op == "&&" || op == "||" {
+            for x in [l, r] {
+                if let Some(k) = self.kind(x, sc).filter(|k| k != "Bool") {
+                    self.err(&f.path, line, format!("{} łączy wartości Bool, a dostaje {}", op, k));
+                }
+            }
+            return;
+        }
+        let (Some(a), Some(b)) = (self.kind(l, sc), self.kind(r, sc)) else { return };
+        let ok = match op {
+            "==" | "!=" => fits(&a, &b) || fits(&b, &a),
+            "<" | ">" | "<=" | ">=" => (fits(&a, &b) || fits(&b, &a)) && ["Int", "Money", "String", "Date", "DateTime"].contains(&a.as_str()),
+            "+" => (is_num(&a) && is_num(&b)) || (a == b && (a == "String" || a == "List")),
+            _ => is_num(&a) && is_num(&b),
+        };
+        if !ok {
+            self.err(&f.path, line, format!("{} nie działa na {} i {}", op, a, b));
+        }
+    }
+
+    // Argument o znanej podstawie typu musi pasować do parametru; uprawnienia sprawdza cap_args.
+    fn arg_types(&mut self, callee: &FnDecl, args: &[Arg], sc: &mut Scopes, line: usize, f: &SourceFile) {
+        let mut i = 0;
+        for a in args {
+            let p = match &a.name {
+                Some(n) => callee.params.iter().find(|p| &p.name == n),
+                None => {
+                    i += 1;
+                    callee.params.get(i - 1)
+                }
+            };
+            let Some(p) = p else { continue };
+            let (Some(want), Some(have)) = (self.base(&p.ty, 0), self.kind(&a.value, sc)) else { continue };
+            if !fits(&want, &have) {
+                self.err(&f.path, line, format!("{} ma parametr {}: {}, a dostaje {}", callee.name, p.name, p.ty, have));
+            }
+        }
+    }
+
     // Uprawnienie przekazane dalej musi pasować: Db można dać tam, gdzie DbRead.
-    fn cap_args(&mut self, callee: &FnDecl, args: &[Arg], sc: &mut Scopes<'a>, line: usize, f: &SourceFile) {
+    fn cap_args(&mut self, callee: &FnDecl, args: &[Arg], sc: &mut Scopes, line: usize, f: &SourceFile) {
         let mut i = 0;
         for a in args {
             let p = match &a.name {
@@ -756,10 +1001,11 @@ impl<'a> Ck<'a> {
                 continue;
             }
             let have = match &a.value.kind {
-                ExprKind::Ident(n) => sc
-                    .find(n)
-                    .and_then(|v| v.ty)
-                    .and_then(|t| if let TypeExpr::Name { name, .. } = t { Some(name.clone()) } else { None }),
+                ExprKind::Ident(n) => {
+                    sc.find(n)
+                        .and_then(|v| v.ty.as_ref())
+                        .and_then(|t| if let TypeExpr::Name { name, .. } = t { Some(name.clone()) } else { None })
+                }
                 _ => None,
             };
             match have {
@@ -826,47 +1072,14 @@ impl<'a> Ck<'a> {
         }
     }
 
-    // Podstawa typu wyrażenia, gdy da się ją ustalić bez pełnej inferencji: stałe, porównania,
-    // parametry z typem, ich pola, wywołania funkcji i konstruktory rekordów. W innych razach None.
-    fn kind(&self, e: &Expr, sc: &mut Scopes<'a>) -> Option<String> {
-        let int = || Some("Int".to_string());
-        match &e.kind {
-            ExprKind::Int(_) => int(),
-            ExprKind::Str(_) => Some("String".into()),
-            ExprKind::Bool(_) | ExprKind::Not(_) => Some("Bool".into()),
-            ExprKind::List(_) => Some("List".into()),
-            ExprKind::Bin { op, l, r } => match *op {
-                "==" | "!=" | "<" | ">" | "<=" | ">=" | "&&" | "||" => Some("Bool".into()),
-                "+" | "-" | "*" | "/" | "%" => {
-                    let (a, b) = (self.kind(l, sc)?, self.kind(r, sc)?);
-                    (a == b && (a == "Int" || (a == "String" && *op == "+"))).then_some(a)
-                }
-                _ => None,
-            },
-            ExprKind::Neg(x) => self.kind(x, sc).filter(|k| k == "Int"),
-            ExprKind::Ident(n) => sc.find(n).and_then(|v| v.ty).and_then(|t| self.base(t, 0)),
-            ExprKind::Field { obj, name } => {
-                let r = self.kind(obj, sc)?;
-                let fd = self.record(&r)?.iter().find(|x| &x.name == name)?;
-                self.base(&fd.ty, 0)
-            }
-            ExprKind::Call { name, .. } => match self.env.fns.get(name) {
-                Some(i) => i.decl().ret.as_ref().and_then(|t| self.base(t, 0)),
-                None if self.record(name).is_some() => Some(name.clone()),
-                None => match name.as_str() {
-                    "len" => int(),
-                    "join" | "to_string" | "char" => Some("String".into()),
-                    _ => None,
-                },
-            },
-            ExprKind::With { e: x, .. } => self.kind(x, sc),
-            _ => None,
-        }
+    // Podstawa typu wyrażenia (Int, String, List, nazwa rekordu...), gdy typ jest znany.
+    fn kind(&self, e: &Expr, sc: &mut Scopes) -> Option<String> {
+        self.ty(e, sc).and_then(|t| self.base(&t, 0))
     }
 
     // Pola rekordu r w `r with pole: wartość` i w `R(pole: wartość)`: pole musi istnieć, a wartość
     // o znanej podstawie typu musi pasować do pola. Int pasuje też do Money.
-    fn field_types(&mut self, r: &str, given: &[(&str, &Expr)], line: usize, sc: &mut Scopes<'a>, f: &SourceFile) {
+    fn field_types(&mut self, r: &str, given: &[(&str, &Expr)], line: usize, sc: &mut Scopes, f: &SourceFile) {
         let Some(fs) = self.record(r) else { return };
         for (n, v) in given {
             let Some(fd) = fs.iter().find(|x| x.name == *n) else {
@@ -874,7 +1087,7 @@ impl<'a> Ck<'a> {
                 continue;
             };
             let (Some(want), Some(have)) = (self.base(&fd.ty, 0), self.kind(v, sc)) else { continue };
-            if want != have && !(want == "Money" && have == "Int") {
+            if !fits(&want, &have) {
                 self.err(&f.path, line, format!("pole {}.{} ma typ {}, a dostaje {}", r, n, fd.ty, have));
             }
         }
@@ -909,6 +1122,36 @@ impl<'a> Ck<'a> {
             self.err(&f.path, line, format!("try {}: wynik {} nie obejmuje błędów {}", name, d.name, m.join(", ")));
         }
     }
+}
+
+fn named(n: &str) -> TypeExpr {
+    TypeExpr::Name {
+        name: n.to_string(),
+        args: vec![],
+        cond: None,
+        fields: None,
+        line: 0,
+    }
+}
+
+// Lista z elementem typu el; List bez argumentu, gdy element nieznany.
+fn list_of(el: Option<TypeExpr>) -> TypeExpr {
+    TypeExpr::Name {
+        name: "List".into(),
+        args: el.into_iter().collect(),
+        cond: None,
+        fields: None,
+        line: 0,
+    }
+}
+
+// Wartość o podstawie typu have pasuje tam, gdzie want. Int pasuje też do Money.
+fn fits(want: &str, have: &str) -> bool {
+    want == have || (want == "Money" && have == "Int")
+}
+
+fn is_num(k: &str) -> bool {
+    k == "Int" || k == "Money"
 }
 
 fn brace_refs(text: &str) -> Vec<String> {
