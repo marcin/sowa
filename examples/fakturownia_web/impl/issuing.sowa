@@ -5,6 +5,9 @@ fn read_line(form: LineForm, position: Int(α > 0)) -> Line | IssueError
   vat = read_vat(form.vat) as VatRate or return InvalidLine(position: position, field: LineVat)
   return Line(name: name, quantity: quantity, unit_net: unit_net, vat: vat)
 
+// Prywatny: pole VAT z formularza, które nie jest stawką.
+type VatInputError = NotAVatRate
+
 // Prywatna: stawka VAT z pola formularza.
 fn read_vat(input: String) -> VatRate | NotAVatRate
   if input == "23"

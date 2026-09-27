@@ -1,0 +1,5 @@
+compiler/target/
+.sowa/
+*.db
+*.db-shm
+*.db-wal

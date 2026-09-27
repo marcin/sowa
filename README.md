@@ -94,4 +94,4 @@ Z samej sygnatury widać, że funkcja łączy się z bankiem, zapisuje do bazy i
 
 ## Status
 
-Na razie to projekt na papierze: specyfikacja i przykłady, bez parsera i kompilatora. Następny krok to `sowa check` dla uprawnień, specyfikacji i dokumentacji oraz `sowa review` z solverem, sprawdzony na [examples/invoices](examples/invoices/) ([plan](docs/ocena.md#następny-krok)). Uwagi i krytyka mile widziane.
+Na razie to głównie projekt na papierze: specyfikacja i przykłady. [compiler/](compiler/) to najprostszy kompilator do JavaScriptu (Bun): `sowa check`, `sowa test` i `sowa run` działają na [examples/fakturownia_web](examples/fakturownia_web/), bez solvera i bez `sowa review`. Następny krok to `sowa check` dla uprawnień, specyfikacji i dokumentacji oraz `sowa review` z solverem, sprawdzony na [examples/invoices](examples/invoices/) ([plan](docs/ocena.md#następny-krok)). Uwagi i krytyka mile widziane.
