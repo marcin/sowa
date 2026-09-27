@@ -1,0 +1,26 @@
+desc Typy wspólne dla całej aplikacji.
+why zalozenia.md#kwoty
+why zalozenia.md#dane-z-formularza
+
+type Quantity = Int(α > 0)
+  desc Liczba sztuk na pozycji.
+type NetPrice = Money(α >= 0)
+  desc Cena jednostkowa netto w złotych.
+type Name     = String(len(trim(α)) > 0 && len(α) <= 200)
+type Email    = String(valid_email(α))
+type Nip      = String(len(α) == 10 && only_digits(α) && nip_checksum_ok(α))
+  desc Numer NIP: 10 cyfr, bez kresek i spacji, z poprawną sumą kontrolną.
+  why zalozenia.md#nip
+
+type VatRate = Vat23 | Vat8 | Vat5 | Vat0
+  doc uzytkownik/faktury.md#stawki-vat
+
+fn vat_percent(rate: VatRate) -> Int(α >= 0 && α <= 23)
+  example vat_percent(Vat23) == 23
+  example vat_percent(Vat0) == 0
+
+fn read_nip(input: String) -> Nip | InvalidNip
+  desc Zamienia NIP wpisany przez użytkownika (z kreskami lub spacjami) na Nip.
+
+  example read_nip("123-456-32-18") == "1234563218"
+  example read_nip("123") == InvalidNip

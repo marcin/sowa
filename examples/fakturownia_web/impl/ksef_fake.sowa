@@ -1,0 +1,12 @@
+// Ten plik człowiek czyta: jest w .github/CODEOWNERS i nie jest zwinięty w PR (.gitattributes).
+// Każda linia to założenie o ksef.pl. Jeśli prawdziwy serwer działa inaczej, poprawia się
+// najpierw atrapę (za zgodą człowieka), a dopiero potem kod.
+
+fn ksef_fake(req: HttpRequest) -> HttpResponse
+  if req.method != Post || req.path != "/invoices"
+    return HttpResponse(status: 404, body: "")
+  invoice = req.body as KsefInvoice or return HttpResponse(status: 400, body: "Niepoprawny format faktury.")
+  if invoice.gross == 0
+    return HttpResponse(status: 422, body: "Faktura na 0 zł.")
+  answer = KsefAnswer(reference: "KSEF-" + invoice.number)
+  return HttpResponse(status: 200, body: to_json(answer))

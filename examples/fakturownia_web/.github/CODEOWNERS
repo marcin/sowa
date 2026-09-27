@@ -1,0 +1,11 @@
+# Specyfikacja, zasoby i zatwierdzone opisy wymagają zgody właściciela w PR.
+# Kod w impl/ nie ma właściciela, poza dwoma plikami, które człowiek czyta:
+# numeracją (wymóg prawny) i atrapą ksef.pl (założenia o cudzym serwerze).
+# W prawdziwym projekcie ten plik leży w katalogu głównym repozytorium
+# (GitHub nie czyta CODEOWNERS z podkatalogów), tu jest tylko przykładem.
+sowa.toml             @marcin
+docs.lock             @marcin
+src/                  @marcin
+docs/                 @marcin
+impl/storage.sowa     @marcin
+impl/ksef_fake.sowa   @marcin

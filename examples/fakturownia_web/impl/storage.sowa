@@ -1,0 +1,40 @@
+// Ten plik człowiek czyta: jest w .github/CODEOWNERS i nie jest zwinięty w PR (.gitattributes).
+// Numeracja bez luk to wymóg prawny, a jej poprawności nie wyrazi sam typ.
+// API bazy (save, get, all) to szkic: w specyfikacji go jeszcze nie ma.
+
+fn save_new_invoice(buyer: Buyer, lines: List<Line>(len(α) > 0), issued_on: Date, db: Db)
+    -> Invoice(α.status == Issued) | StorageError
+  // Licznik i faktura zapisują się razem albo wcale. Dwa równoległe zapisy nie dostaną
+  // tego samego numeru, bo baza szereguje transakcje na tym samym liczniku.
+  match db.transaction(tx =>
+    seq = next_seq(issued_on.year, tx)
+    invoice = Invoice(
+      number: format_number(issued_on.year, seq),
+      buyer: buyer,
+      lines: lines,
+      issued_on: issued_on,
+      status: Issued,
+    )
+    tx.save("invoices", key: invoice.number, value: invoice)
+    return invoice
+  )
+    Invoice invoice => return invoice
+    DbError         => return StorageFailed
+
+// Prywatna: kolejny numer w roku. Pierwszy w roku to 1.
+fn next_seq(year: Int, db: Db) -> Int(α > 0)
+  last = db.get<Int>("counters", key: to_string(year)) as Int(α >= 0) or 0
+  db.save("counters", key: to_string(year), value: last + 1)
+  return last + 1
+
+fn find_invoice(number: InvoiceNumber, db: DbRead) -> Invoice | LookupError
+  return db.get<Invoice>("invoices", key: number) as Invoice or return NoInvoice
+
+fn list_invoices(db: DbRead) -> List<Invoice>
+  return sort_by(db.all<Invoice>("invoices"), i => i.issued_on).reverse()
+
+fn mark_sent(invoice: Invoice(α.status == Issued), reference: KsefReference, sent_at: DateTime, db: Db)
+    -> Invoice(α.status is SentToKsef)
+  sent = invoice with status: SentToKsef(reference: reference, sent_at: sent_at)
+  db.save("invoices", key: sent.number, value: sent)
+  return sent

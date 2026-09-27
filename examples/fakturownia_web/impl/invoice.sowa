@@ -1,0 +1,14 @@
+fn format_number(year: Int(α >= 2000 && α <= 9999), seq: Int(α > 0)) -> InvoiceNumber
+  return "FV/" + to_string(year) + "/" + pad_left(to_string(seq), 4, "0")
+
+fn line_net(line: Line) -> Money(α >= 0)
+  return round(line.unit_net * line.quantity, 2)
+
+fn totals(lines: List<Line>(len(α) > 0)) -> Totals(α.gross == α.net + α.vat)
+  var net = 0
+  var vat = 0
+  for rate in distinct(lines.map(l => l.vat))
+    rate_net = sum(lines.filter(l => l.vat == rate).map(l => line_net(l)))
+    net = net + rate_net
+    vat = vat + round(rate_net * vat_percent(rate) / 100, 2)
+  return Totals(net: net, vat: vat, gross: net + vat)

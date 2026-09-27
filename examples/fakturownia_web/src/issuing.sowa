@@ -1,0 +1,50 @@
+desc Wystawianie faktury: od danych z formularza do zapisanej faktury z numerem.
+why zalozenia.md#dane-z-formularza
+why zalozenia.md#uprawnienia
+
+type InvoiceForm
+  desc Dane z formularza, jeszcze niesprawdzone. Wszystkie pola to tekst.
+
+  buyer_name: String
+  buyer_nip: String
+  buyer_email: String
+  lines: List<LineForm>
+
+type LineForm
+  name: String
+  quantity: String
+  unit_net: String
+  vat: String
+
+type LineField = LineName | LineQuantity | LinePrice | LineVat
+
+// InvalidLine niesie dane: numer pozycji (od 1) i pole, żeby komunikat wskazał,
+// co poprawić, np. „Pozycja 2: nieprawidłowa ilość”.
+type IssueError = InvalidBuyerName | InvalidNip | InvalidEmail | EmptyInvoice
+  | InvalidLine(position: Int(α > 0), field: LineField) | NumberingFailed
+
+fn read_line(form: LineForm, position: Int(α > 0)) -> Line | IssueError
+  desc Sprawdza jedną pozycję z formularza.
+
+  example read_line(LineForm(name: "Usługa", quantity: "2", unit_net: "50", vat: "23"), 1)
+    == Line(name: "Usługa", quantity: 2, unit_net: 50, vat: Vat23)
+  example read_line(LineForm(name: "Usługa", quantity: "0", unit_net: "50", vat: "23"), 2)
+    == InvalidLine(position: 2, field: LineQuantity)
+  example read_line(LineForm(name: "Usługa", quantity: "1", unit_net: "50", vat: "7"), 1)
+    == InvalidLine(position: 1, field: LineVat)
+
+fn read_buyer(form: InvoiceForm) -> Buyer | IssueError
+  example
+    form = InvoiceForm(buyer_name: "Firma", buyer_nip: "123", buyer_email: "biuro@firma.pl", lines: [])
+    read_buyer(form) == InvalidNip
+
+// Db i Clock, bez Http: wystawienie faktury niczego nie wysyła do KSeF (decyzja 001).
+fn issue_invoice(form: InvoiceForm, db: Db, clock: Clock) -> Invoice(α.status == Issued) | IssueError
+  doc uzytkownik/faktury.md#wystawianie-faktury
+  why decyzje/001-ksef-osobnym-krokiem.md
+
+  example
+    line = LineForm(name: "Usługa", quantity: "1", unit_net: "100", vat: "23")
+    form = InvoiceForm(buyer_name: "Firma", buyer_nip: "123-456-32-18", buyer_email: "biuro@firma.pl", lines: [line])
+    invoice = try issue_invoice(form, db, clock)
+    invoice.number == "FV/2026/0001"

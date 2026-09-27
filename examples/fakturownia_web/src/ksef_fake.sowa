@@ -1,0 +1,13 @@
+desc Atrapa ksef.pl dla sowa test ([resources.test] w sowa.toml).
+why decyzje/002-ponowna-wysylka.md
+
+// Atrapa to założenia o cudzym serwerze, a testy przechodzą tylko wobec nich.
+// Dlatego jej ciało w impl/ksef_fake.sowa człowiek czyta (CODEOWNERS, .gitattributes).
+fn ksef_fake(req: HttpRequest) -> HttpResponse
+  desc
+    POST /invoices z poprawnym KsefInvoice: 200 i numer KSEF-<numer faktury>.
+    Ta sama faktura daje zawsze ten sam numer, więc ponowna wysyłka jest bezpieczna.
+    Faktura na 0 zł brutto: 422. Treść, która nie jest KsefInvoice: 400. Inna ścieżka: 404.
+
+  example ksef_fake(HttpRequest(method: Get, path: "/invoices", body: "")).status == 404
+  example ksef_fake(HttpRequest(method: Post, path: "/invoices", body: "{}")).status == 400

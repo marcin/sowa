@@ -1,0 +1,3 @@
+# Szkic formatu. Generuje `sowa review`, nie edytuj ręcznie. Plik należy do właściciela w CODEOWNERS.
+# Pusty, bo PR czeka na zatwierdzenie: wiersze dopisze `sowa review`, gdy człowiek potwierdzi opisy.
+# opis                                     symbol                 przez  hash    kto                    przejrzane

@@ -149,6 +149,24 @@ Ogólna lekcja: skróty w stylu Ruby'ego sprawdzają się w zwykłym kodzie, ale
   Plik w `impl/` powtarza linię `fn`. To dublowanie, ale bez niego plik z ciałami nie dałby się czytać bez otwierania `src/` obok. Kompilator sprawdza, czy obie linie są identyczne.
 
   Uprawnienia do sieci mają zasób (`Mailer` do jednego serwera, `Http` do jednego adresu), bo w nieczytanym kodzie samo „sieć” znaczy „dowolny adres”.
+- **Warianty z danymi: pola nazwane, bez rozpakowania.** `SentToKsef(reference: KsefReference, sent_at: DateTime)` ma pola jak rekord, a w `match` nazwa wiąże cały wariant: `SentToKsef s => s.reference`. Reguły w [zalozenia.md](zalozenia.md#warianty).
+
+  | Wariant | Ocena |
+  |---|---|
+  | pola pozycyjne `SentToKsef(KsefReference, DateTime)` | krótko, ale w `match` i w konstruktorze nie widać, które pole jest które |
+  | rozpakowanie w `match`: `SentToKsef(reference: r, sent_at: t) =>` | druga składnia do nauczenia; zmiana pól psuje każdy `match`, nawet ten, który ich nie używa |
+  | **pola nazwane, nazwa na cały wariant (`SentToKsef s => s.reference`)** | **wybrane**: ten sam dostęp do pól co w rekordach; warunek w typie działa od razu: `Invoice(α.status is SentToKsef)` |
+
+  Nazwy wariantów są unikalne w projekcie, więc `Issued` czy `NoInvoice` wystarczy bez przedrostka typu. Koszt: dwie unie nie mogą mieć wariantu o tej samej nazwie, np. `Get` w aplikacji i we wbudowanym `Method` ([fakturownia_web](../examples/fakturownia_web/src/web.sowa)).
+- **Zasoby w testach: `[resources.test]` i atrapa jako czysta funkcja.** Funkcja z `db: Db` albo `ksef: Http` musi mieć przykłady, bo inaczej najważniejsza ścieżka (formularz → zapis → wysyłka) nie ma testu. Przykład dostaje świeże zasoby z `[resources.test]`: bazę w pamięci, zatrzymany zegar, atrapę serwera. Reguły w [zalozenia.md](zalozenia.md#zasoby-w-testach-resourcestest).
+
+  | Wariant | Ocena |
+  |---|---|
+  | mocki w kodzie testu (`mock(ksef).returns(...)`) | agent pisze i test, i mocka, więc może dopasować oba do kodu; mock w każdym teście osobno |
+  | nagrane odpowiedzi (VCR, cassettes) | prawdziwe, ale nieczytelne dla człowieka i starzeją się; agent może nagrać odpowiedź, która pasuje do kodu |
+  | **czysta funkcja `fn(HttpRequest) -> HttpResponse` w `src/`, ciało w CODEOWNERS** | **wybrane**: jedna atrapa na zasób; założenia o cudzym serwerze są w kilkunastu liniach, które człowiek czyta; zmiana atrapy to „usunięty test” w `sowa review`; nie potrzeba nowej konstrukcji |
+
+  Koszt: czysta atrapa nie pamięta poprzednich zapytań, więc nie opisze serwera ze stanem (zob. otwarte pytania). Pierwsza próba na [fakturownia_web](../examples/fakturownia_web/): atrapa ksef.pl ma 12 linii, a założenie o ponownej wysyłce trafiło do niej i do decyzji 002.
 - **Kompilacja: liczenie referencji zamiast borrow checkera.** Pytanie brzmiało: czy Sowa może działać tak szybko jak Rust, a kompilować się szybciej. Rust zawdzięcza szybkość temu, że nie ma GC, a własność (`&`, `&mut`, czasy życia) sprawdza w kompilacji. Tyle że czasy życia trafiłyby do sygnatur w `src/`, a te czyta człowiek.
 
   | Wariant | Ocena |
@@ -219,7 +237,7 @@ Uczciwie: realistyczna droga może też polegać na dodaniu efektów, kontraktó
 
 ## Aplikacja webowa
 
-Próba: czy w Sowie da się napisać prostą aplikację webową. Szkic leży w przykładzie [invoices](../examples/invoices/): `src/web.sowa`, `impl/web.sowa` i `main` z `web: Server`. Aplikacja ma formularz nowej faktury, stronę faktury i przycisk wysyłki e-mailem.
+Próba: czy w Sowie da się napisać prostą aplikację webową. Szkic leży w przykładzie [invoices](../examples/invoices/): `src/web.sowa`, `impl/web.sowa` i `main` z `web: Server`. Aplikacja ma formularz nowej faktury, stronę faktury i przycisk wysyłki e-mailem. Druga, pełniejsza próba to [fakturownia_web](../examples/fakturownia_web/): wystawienie, zapis w bazie i wysyłka do ksef.pl, napisane tak, jakby pisał je agent, z [wynikiem `sowa review`](../examples/fakturownia_web/PR.md) dla człowieka.
 
 Wniosek: da się, a uprawnienia pasują do weba lepiej niż do reszty przykładu. Brakuje jednak kilku konstrukcji, bez których aplikacji nie da się napisać, i części biblioteki standardowej.
 
@@ -237,23 +255,23 @@ Czego brakuje:
 
 | Luka | W szkicu | Uwagi |
 |---|---|---|
-| warianty z danymi | `ShowInvoice(number: InvoiceNumber)`, `Ok(body: Html)` | bez nich nie ma `Route` ani `Response`; najważniejsza luka, potrzebna też poza webem |
+| ~~warianty z danymi~~ | `ShowInvoice(number: InvoiceNumber)`, `Ok(body: Html)` | **w specyfikacji** ([Warianty](zalozenia.md#warianty)); razem z błędami z danymi, np. `InvalidLine(position: 2, field: LineQuantity)` |
 | `match` na kilku wartościach i na liście | `match method, segments(path)` z `["invoices", year, seq]` | alternatywa to łańcuch `if`, czytelny gorzej |
 | `_` w `match` | `_ => return UnknownPath` | kłóci się z regułą, że nowy wariant psuje niepełny `match`; propozycja: `_` tylko dla typów bez skończonej listy wariantów (`String`, `List`, `Int`), nigdy dla unii |
-| blok po `=>` | dwie linie w gałęzi `route` | dziś przykłady mają w gałęzi tylko `return` |
+| ~~blok po `=>`~~ | dwie linie w gałęzi `route` | **w specyfikacji** ([Warianty](zalozenia.md#warianty)) |
 | odczyt formularza i JSON | `req.body as InvoiceForm or ...` | `as` z tekstu na rekord, dekoder generuje kompilator z typu (bez makr, jak `derive` w Ruście); `as` mówi tylko „nie pasuje”, a formularz potrzebuje błędu przy polu, dlatego `InvoiceForm` trzyma tekst, a sprawdza go `read_buyer`; lista pozycji w formularzu HTML to nazwy `lines[0].name` albo JSON |
 | HTML | `html"..."` z `{...}` | wstawiony tekst escapowany według miejsca (treść, atrybut, adres), jak w `html/template` w Go; zwykłe napisy nie mają interpolacji, a literały wieloliniowe nie mają reguł wcięć |
 | uprawnienie `Server` | `web = { type = "Server", listen = "0.0.0.0:8080" }` | nowy wbudowany typ; przy Deno to kolejny adres w `--allow-net` |
-| testy funkcji z uprawnieniami | `post_invoice` bez `example` | przykład potrzebuje `Db` i `Clock`; propozycja: `[resources.test]` z bazą w pamięci i stałym zegarem, na których `sowa test` uruchamia takie przykłady; bez tego najważniejsza ścieżka (formularz → zapis) nie ma testu w `src/` |
+| ~~testy funkcji z uprawnieniami~~ | `post_invoice` bez `example` | **w specyfikacji** ([`[resources.test]`](zalozenia.md#zasoby-w-testach-resourcestest)); w fakturownia_web cały przepływ przez `handle` jest testem w instrukcji |
 | zapytania do bazy | `find_invoice` bez ciała | typowane i zawsze parametryzowane (bez SQL injection), wiersz zamieniany na rekord z warunkami |
 | sesje, logowanie, CSRF | nie ma | dziś każdy może wystawić fakturę; potrzeba ciasteczek w `Request` i `Response`, `Random` na tokeny i hashowania haseł (biblioteka spoza Sowy, `extern fn`) |
 | `as` na unii | `parse_int(year) as Int(α >= 2000)` | `as` zawęża `Int \| NotANumber` do `Int` z warunkiem |
 
-Przy okazji wyszedł słaby typ. Naturalna `property route(Get, invoice_path(number)) == ShowInvoice(number: number)` nie przejdzie, bo `InvoiceNumber` wymaga tylko prefiksu „FV/”: generator poda np. `"FV/x"`, a `route` zwróci `UnknownPath`. Typ powinien opisywać cały format, np. `matches(α, "FV/[0-9]{4}/[0-9]{4,}")`. W szkicu tego nie poprawiono, bo to zmiana w numeracji, której kod czyta człowiek. To dobry argument za `property`: jedna linia pokazała lukę w specyfikacji, której nie wychwycił żaden przykład.
+Przy okazji wyszedł słaby typ. Naturalna `property route(Get, invoice_path(number)) == ShowInvoice(number: number)` nie przejdzie, bo `InvoiceNumber` wymaga tylko prefiksu „FV/”: generator poda np. `"FV/x"`, a `route` zwróci `UnknownPath`. Typ powinien opisywać cały format, np. `matches(α, "FV/[0-9]{4}/[0-9]{4,}")`. W invoices tego nie poprawiono, bo to zmiana w numeracji, której kod czyta człowiek. W fakturownia_web typ opisuje już cały format i `property` przechodzi. To dobry argument za `property`: jedna linia pokazała lukę w specyfikacji, której nie wychwycił żaden przykład.
 
 Poza próbą zostały: wydajność serwera, strumieniowanie, WebSockety i przesyłanie plików.
 
-Następny krok: warianty z danymi i `[resources.test]` do specyfikacji, bo przydadzą się też poza webem. Reszta (`html"..."`, odczyt formularza, zapytania) to biblioteka standardowa.
+Warianty z danymi, blok po `=>` i `[resources.test]` są już w specyfikacji. Następny krok: `match` na listach i `_`, a potem biblioteka standardowa (`html"..."`, odczyt formularza i JSON, API bazy, `Server`, `Http`).
 
 ## Szkice na później
 
@@ -276,12 +294,21 @@ process InvoiceWorker supervised(restart: 3/min)
 ```
 Izolowane procesy z supervisorem. Stan `observable` jest odpytywalny na żywo.
 
+```
+fn discount_rule(order: Order) -> Percent
+```
+Kod użytkowników w Sowie. Klient aplikacji pisze własną regułę, np. rabat, a serwer ją kompiluje i uruchamia, albo kompiluje ją do WASM. Funkcja bez uprawnień jest czysta, więc sam typ gwarantuje, że kod nie czyta bazy, nie łączy się z siecią i nie czyta plików. Gospodarz podaje tylko te uprawnienia, które chce, np. `log: Log`. WASM bez importów daje to samo w przeglądarce. Do ustalenia: limit czasu i pamięci (pętla bez końca też jest czysta), ograniczony solver, żeby kompilacja nie była atakiem, i czy użytkownik widzi błędy kompilatora po polsku.
+
 ## Otwarte pytania
 
 - **Bloki:** wcięcia (jak w przykładach), `{ }` czy `do ... end`? W rozmowie pojawiały się wszystkie trzy.
 - **Błędy:** tylko typowane warianty (`InvalidDiscount`) czy także `error("tekst")`? Przykłady używają wariantów, bo tak działa `match`.
 - **Uprawnienia:** czy wbudowane (`Db`, `DbRead`, `Clock`, `Random`, `Log`, `Mailer`, `Http`, `Files`) wystarczą? Czy można tworzyć własne, np. zawężając `Http` do jednej ścieżki? Pełna lista operacji (`clock.today()`, `log.write(...)`, `db.transaction(...)`)? Kolejne pytania w [specyfikacja.md](specyfikacja.md#otwarte-pytania).
-- **`[resources]` w `sowa.toml`:** jak podać sekrety, np. hasło do bazy (zmienne środowiskowe)? Inne zasoby w testach i na produkcji?
+- **`[resources]` w `sowa.toml`:** jak podać sekrety, np. hasło do bazy albo token do ksef.pl? W fakturownia_web jest szkic `token_env = "KSEF_TOKEN"`. Czy runtime ma ukrywać sekret przed kodem (kod dostaje `Http` z tokenem, ale nie widzi tokenu)?
+- **`[resources.test]`:**
+  - schemat bazy w pamięci: skąd wiadomo, jakie są tabele, i czy te same migracje co na produkcji?
+  - serwery ze stanem, np. ksef.pl, które za drugim razem odpowiadają inaczej: atrapa jako `fn(HttpRequest, state) -> (HttpResponse, state)`?
+  - czy przykład może zmienić zegar w trakcie, np. „po 30 dniach faktura jest przeterminowana”?
 - **Zatwierdzanie:** pytania w [zatwierdzanie.md](zatwierdzanie.md#otwarte-pytania).
 - **Weryfikacja:** co sprawdzać statycznie (solver, np. Z3), a co w runtime? Jak daleko idzie wnioskowanie po `if` (czy `if input >= 0 && input <= 100` wystarczy do `Percent(input)`)?
 - **`α` w typach złożonych:** jak zapisać warunek na polu wewnątrz typu z warunkiem, np. `Order(α.items: List(len(α) > 0))`? Który `α` jest który?
@@ -310,6 +337,7 @@ Izolowane procesy z supervisorem. Stan `observable` jest odpytywalny na żywo.
   - zasoby dla bazy: `Db` zawężony do jednej tabeli?
   - czy `impl/` musi powtarzać sygnatury, czy wystarczy sama nazwa funkcji?
 - **Kompilacja:** kiedy własny backend zamiast TypeScriptu? Czy liczenie referencji wystarczy przy bibliotekach spoza Sowy, które mogą tworzyć cykle? Jaki domyślny limit pracy solvera?
-- **Aplikacja webowa:** luki z [próby](#aplikacja-webowa): warianty z danymi, `match` na listach i `_`, odczyt formularza, `html"..."`, `Server`, `[resources.test]`, zapytania do bazy, sesje.
+- **Aplikacja webowa:** luki z [próby](#aplikacja-webowa): `match` na listach i `_`, odczyt formularza i JSON, `html"..."`, `Server`, typy `HttpRequest` i `HttpResponse`, zapytania do bazy, sesje.
+- **Kod użytkowników:** czy kompilacja cudzego kodu Sowy na serwerze albo do WASM to osobny tryb kompilatora (bez `main`, bez `[resources]`, z limitami)? Zob. [szkice](#szkice-na-później).
 - **Komentarze:** `//` czy `--`? (Nie `#`.)
 - **Rozszerzenie plików:** `.sowa`.

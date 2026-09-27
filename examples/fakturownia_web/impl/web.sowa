@@ -1,0 +1,164 @@
+fn route(method: Method, path: String) -> Route
+  // Dopasowanie do listy segmentów i `_` nie są jeszcze w specyfikacji.
+  // Zob. docs/przemyslenia.md w repozytorium Sowy, sekcja „Aplikacja webowa”.
+  match method, segments(path)
+    Get,  []                  => return InvoiceList
+    Get,  ["invoices", "new"] => return NewInvoice
+    Post, ["invoices"]        => return CreateInvoice
+    Get,  ["invoices", year, seq] =>
+      number = try read_number(year, seq)
+      return ShowInvoice(number: number)
+    Post, ["invoices", year, seq, "ksef"] =>
+      number = try read_number(year, seq)
+      return SendToKsef(number: number)
+    _ => return UnknownPath
+
+// Prywatna: rok i kolejny numer z adresu. Litery albo numer 0 to nieznany adres.
+fn read_number(year: String, seq: String) -> InvoiceNumber | UnknownPath
+  y = parse_int(year) as Int(α >= 2000 && α <= 9999) or return UnknownPath
+  s = parse_int(seq) as Int(α > 0) or return UnknownPath
+  return format_number(y, s)
+
+fn invoice_path(number: InvoiceNumber) -> String(starts_with(α, "/invoices/"))
+  return "/invoices/" + drop_prefix(number, "FV/")
+
+fn handle(req: Request, db: Db, clock: Clock, ksef: Http) -> Response
+  match route(req.method, req.path)
+    InvoiceList   => return get_list(db)
+    NewInvoice    => return Ok(body: form_page(empty_form(), []))
+    CreateInvoice => return post_invoice(req, db, clock)
+    ShowInvoice r => return get_invoice(r.number, db)
+    SendToKsef r  => return post_ksef(r.number, db, clock, ksef)
+    UnknownPath   => return NotFound(body: not_found_page())
+
+fn get_list(db: DbRead) -> Response
+  return Ok(body: list_page(list_invoices(db)))
+
+fn post_invoice(req: Request, db: Db, clock: Clock) -> Response
+  // `as` z tekstu formularza na rekord nie jest jeszcze w specyfikacji.
+  form = req.body as InvoiceForm or
+    return BadRequest(body: form_page(empty_form(), ["Nie udało się odczytać formularza."]))
+  match issue_invoice(form, db, clock)
+    Invoice invoice => return Redirect(to: invoice_path(invoice.number))
+    IssueError e    => return BadRequest(body: form_page(form, [error_message(e)]))
+
+fn get_invoice(number: InvoiceNumber, db: DbRead) -> Response
+  match find_invoice(number, db)
+    Invoice invoice => return Ok(body: invoice_page(invoice, []))
+    NoInvoice       => return NotFound(body: not_found_page())
+
+fn post_ksef(number: InvoiceNumber, db: Db, clock: Clock, ksef: Http) -> Response
+  invoice = find_invoice(number, db) as Invoice or return NotFound(body: not_found_page())
+  // Już wysłana: drugi klik niczego nie wysyła.
+  issued = invoice as Invoice(α.status == Issued) or return Redirect(to: invoice_path(number))
+  match send_to_ksef(issued, ksef, db, clock)
+    Invoice sent => return Redirect(to: invoice_path(sent.number))
+    KsefError e  => return BadGateway(body: invoice_page(issued, [error_message(e)]))
+
+// Prywatna: pusty formularz z jedną pozycją.
+fn empty_form() -> InvoiceForm
+  line = LineForm(name: "", quantity: "1", unit_net: "", vat: "23")
+  return InvoiceForm(buyer_name: "", buyer_nip: "", buyer_email: "", lines: [line])
+
+// Prywatna: wspólny szkielet strony.
+fn layout(title: String, content: Html) -> Html
+  return html"
+    <!doctype html>
+    <title>{title}</title>
+    <nav><a href="/">Faktury</a> <a href="/invoices/new">Nowa faktura</a></nav>
+    <main>{content}</main>
+    "
+
+fn list_page(invoices: List<Invoice>) -> Html
+  rows = invoices.map(i => html"
+    <tr>
+      <td><a href="{invoice_path(i.number)}">{i.number}</a></td>
+      <td>{i.buyer.name}</td>
+      <td>{totals(i.lines).gross} zł</td>
+      <td>{status_label(i.status)}</td>
+    </tr>
+    ")
+  return layout("Faktury", html"<h1>Faktury</h1><table>{rows}</table>")
+
+fn form_page(form: InvoiceForm, messages: List<String>) -> Html
+  errors = messages.map(m => html"<li>{m}</li>")
+  var rows = []
+  var position = 0
+  for line in form.lines
+    rows = rows + [line_inputs(line, position)]
+    position = position + 1
+  return layout("Nowa faktura", html"
+    <h1>Nowa faktura</h1>
+    <ul class="errors">{errors}</ul>
+    <form method="post" action="/invoices">
+      <input name="buyer_name" value="{form.buyer_name}" placeholder="Nazwa nabywcy">
+      <input name="buyer_nip" value="{form.buyer_nip}" placeholder="NIP">
+      <input name="buyer_email" value="{form.buyer_email}" placeholder="E-mail">
+      <table>{rows}</table>
+      <button>Wystaw fakturę</button>
+    </form>
+    ")
+
+// Prywatna: pola jednej pozycji; nazwy lines[0].name itd. czyta `as InvoiceForm`.
+fn line_inputs(line: LineForm, position: Int) -> Html
+  prefix = "lines[" + to_string(position) + "]."
+  return html"
+    <tr>
+      <td><input name="{prefix}name" value="{line.name}" placeholder="Nazwa"></td>
+      <td><input name="{prefix}quantity" value="{line.quantity}"></td>
+      <td><input name="{prefix}unit_net" value="{line.unit_net}" placeholder="Cena netto"></td>
+      <td><select name="{prefix}vat"><option>23</option><option>8</option><option>5</option><option>0</option></select></td>
+    </tr>
+    "
+
+fn invoice_page(invoice: Invoice, messages: List<String>) -> Html
+  t = totals(invoice.lines)
+  errors = messages.map(m => html"<li>{m}</li>")
+  rows = invoice.lines.map(l => html"<tr><td>{l.name}</td><td>{l.quantity}</td><td>{l.unit_net}</td><td>{vat_percent(l.vat)}%</td></tr>")
+  return layout("Faktura " + invoice.number, html"
+    <h1>Faktura {invoice.number}</h1>
+    <ul class="errors">{errors}</ul>
+    <p>{invoice.buyer.name}, NIP {invoice.buyer.nip}, wystawiona {invoice.issued_on}</p>
+    <table>{rows}</table>
+    <p>Netto {t.net} zł, VAT {t.vat} zł, brutto {t.gross} zł</p>
+    {ksef_section(invoice)}
+    ")
+
+// Prywatna: przycisk wysyłki albo numer z KSeF.
+fn ksef_section(invoice: Invoice) -> Html
+  match invoice.status
+    Issued =>
+      return html"
+        <form method="post" action="{invoice_path(invoice.number)}/ksef">
+          <button>Wyślij do KSeF</button>
+        </form>
+        "
+    SentToKsef s => return html"<p>Wysłana do KSeF {s.sent_at}, numer {s.reference}</p>"
+
+// Prywatna: status na liście faktur.
+fn status_label(status: InvoiceStatus) -> String
+  match status
+    Issued       => return "wystawiona"
+    SentToKsef   => return "w KSeF"
+
+fn not_found_page() -> Html
+  return layout("Nie ma takiej strony", html"<p>Nie ma takiej strony.</p>")
+
+fn error_message(error: IssueError | KsefError) -> String
+  match error
+    InvalidBuyerName => return "Podaj nazwę nabywcy."
+    InvalidNip       => return "Nieprawidłowy NIP."
+    InvalidEmail     => return "Nieprawidłowy adres e-mail."
+    EmptyInvoice     => return "Faktura musi mieć co najmniej jedną pozycję."
+    InvalidLine e    => return "Pozycja " + to_string(e.position) + ": " + field_message(e.field)
+    NumberingFailed  => return "Nie udało się nadać numeru. Spróbuj ponownie."
+    KsefRejected e   => return "KSeF odrzucił fakturę: " + e.reason
+    KsefUnavailable  => return "KSeF nie odpowiada. Spróbuj ponownie za chwilę."
+
+// Prywatna: które pole pozycji jest błędne.
+fn field_message(field: LineField) -> String
+  match field
+    LineName     => return "brak nazwy."
+    LineQuantity => return "nieprawidłowa ilość."
+    LinePrice    => return "nieprawidłowa cena."
+    LineVat      => return "nieprawidłowa stawka VAT."

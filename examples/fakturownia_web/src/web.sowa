@@ -1,0 +1,75 @@
+desc Aplikacja webowa: lista faktur, formularz, strona faktury i wysyłka do KSeF.
+why zalozenia.md#uprawnienia
+why zalozenia.md#błędy
+
+// Zapytanie i odpowiedź to zwykłe wartości. Serwer (web: Server w main) tylko
+// zamienia HTTP na Request i Response na HTTP, więc routing i strony testuje się bez niego.
+
+// Method (Get, Post, ...) to typ wbudowany, ten sam co w HttpRequest. Nazwy wariantów
+// są unikalne w projekcie, więc aplikacja nie definiuje własnych Get i Post.
+
+type Request
+  method: Method
+  path: String
+  body: String
+
+// Runtime zamienia wariant na kod HTTP: 200, 303, 400, 404 i 502.
+// Redirect tylko na ścieżkę w tej aplikacji, nigdy na inną domenę.
+type Response = Ok(body: Html) | Redirect(to: String(starts_with(α, "/")))
+  | BadRequest(body: Html) | NotFound(body: Html) | BadGateway(body: Html)
+
+type Route = InvoiceList | NewInvoice | CreateInvoice
+  | ShowInvoice(number: InvoiceNumber) | SendToKsef(number: InvoiceNumber) | UnknownPath
+  desc Adresy aplikacji. Nieznany adres to zwykły wariant, a nie błąd.
+
+fn route(method: Method, path: String) -> Route
+  desc Zamienia metodę i ścieżkę na adres. Numer faktury w ścieżce jest bez „FV/”.
+
+  example route(Get, "/invoices/2026/0042") == ShowInvoice(number: "FV/2026/0042")
+  example route(Post, "/invoices/2026/0042/ksef") == SendToKsef(number: "FV/2026/0042")
+  example route(Get, "/invoices/2026/0") == UnknownPath
+
+fn invoice_path(number: InvoiceNumber) -> String(starts_with(α, "/invoices/"))
+  example invoice_path("FV/2026/0042") == "/invoices/2026/0042"
+  property route(Get, invoice_path(number)) == ShowInvoice(number: number)
+
+// Jedyna funkcja z kompletem uprawnień. Każdy adres dostaje dalej tylko to, czego potrzebuje.
+fn handle(req: Request, db: Db, clock: Clock, ksef: Http) -> Response
+  desc Obsługuje jedno zapytanie. Serwer może wywoływać ją równolegle.
+
+  example handle(Request(method: Get, path: "/nie-ma", body: ""), db, clock, ksef) is NotFound
+  example handle(Request(method: Get, path: "/invoices/2026/0001", body: ""), db, clock, ksef) is NotFound
+
+fn get_list(db: DbRead) -> Response
+
+// Bez Http: zapis formularza niczego nie wysyła do KSeF (decyzja 001).
+fn post_invoice(req: Request, db: Db, clock: Clock) -> Response
+  desc Wystawia fakturę z formularza i przekierowuje na jej stronę.
+  doc uzytkownik/faktury.md#wystawianie-faktury
+
+fn get_invoice(number: InvoiceNumber, db: DbRead) -> Response
+
+fn post_ksef(number: InvoiceNumber, db: Db, clock: Clock, ksef: Http) -> Response
+  desc Wysyła fakturę do KSeF. Już wysłanej nie wysyła drugi raz, tylko wraca na jej stronę.
+  doc uzytkownik/faktury.md#wysyłka-do-ksef
+
+// Strony są czyste: dane wchodzą, Html wychodzi.
+// Html powstaje tylko z literałów html"...". Wstawiony tekst jest escapowany według miejsca
+// (treść, atrybut, adres), jak w html/template w Go.
+
+fn list_page(invoices: List<Invoice>) -> Html
+
+fn form_page(form: InvoiceForm, messages: List<String>) -> Html
+  property not contains(to_string(form_page(form, messages)), "<script")
+
+fn invoice_page(invoice: Invoice, messages: List<String>) -> Html
+  property contains(to_string(invoice_page(invoice, [])), invoice.number)
+
+fn not_found_page() -> Html
+
+// Komunikaty dla użytkownika powstają tutaj, a nie w logice (zob. why w nagłówku).
+// Nowy wariant w IssueError albo KsefError to błąd kompilacji, dopóki nie dostanie komunikatu.
+fn error_message(error: IssueError | KsefError) -> String
+  example error_message(InvalidNip) == "Nieprawidłowy NIP."
+  example error_message(InvalidLine(position: 2, field: LineQuantity)) == "Pozycja 2: nieprawidłowa ilość."
+  example error_message(KsefRejected(reason: "Faktura na 0 zł.")) == "KSeF odrzucił fakturę: Faktura na 0 zł."

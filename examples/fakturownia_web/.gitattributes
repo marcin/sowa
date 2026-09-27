@@ -1,0 +1,5 @@
+# Kod w impl/ jest w PR domyślnie zwinięty: recenzent widzi specyfikację z src/.
+# Wyjątki: numeracja i atrapa ksef.pl, których kod człowiek czyta (są też w .github/CODEOWNERS).
+impl/**               linguist-generated=true
+impl/storage.sowa     -linguist-generated
+impl/ksef_fake.sowa   -linguist-generated
