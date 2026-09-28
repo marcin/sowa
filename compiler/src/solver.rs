@@ -8,6 +8,8 @@
 // Pytanie „czy nowe ⇒ stare” solver zamienia na „czy nowe ∧ ¬stare ma rozwiązanie”. Formułę
 // rozkłada na alternatywę koniunkcji (DNF), a każdą koniunkcję nierówności sprawdza eliminacją
 // Fouriera–Motzkina na liczbach całkowitych. Money liczy się w groszach, więc też jest całkowite.
+// Dec to liczba wymierna bez zaokrąglania (dla dowodów, gdzie Money nie musi być w groszach):
+// wiersz z Dec zostaje ostry, a model z Dec daje Unknown zamiast kontrprzykładu.
 // Rozwiązanie to kontrprzykład: wartość, którą nowy warunek przepuszcza, a stary nie.
 
 use crate::ast::*;
@@ -27,6 +29,7 @@ pub enum Verdict {
 pub enum Num {
     Int,
     Money,
+    Dec,
 }
 
 // ---------- ułamki ----------
@@ -303,8 +306,8 @@ fn opaque_keys(e: &Expr, out: &mut BTreeSet<String>) {
 
 // ---------- Fourier–Motzkin na liczbach całkowitych ----------
 
-// Σ a·x + c <= 0
-type Row = (BTreeMap<String, i128>, i128);
+// Σ a·x + c <= 0, a z trzecim polem Σ a·x + c < 0.
+type Row = (BTreeMap<String, i128>, i128, bool);
 
 fn ceil_div(a: i128, b: i128) -> i128 {
     let q = a / b;
@@ -325,7 +328,21 @@ fn floor_div(a: i128, b: i128) -> i128 {
 }
 
 // Dzieli przez NWD współczynników i zaokrągla stałą: na liczbach całkowitych to ten sam zbiór.
-fn tighten(mut r: Row) -> Row {
+// Σ < 0 na liczbach całkowitych to Σ + 1 <= 0. Wiersz ze zmienną Dec dzieli się tylko dokładnie.
+fn tighten(mut r: Row, dec: &BTreeSet<String>) -> Row {
+    if r.0.keys().any(|k| dec.contains(k)) {
+        let g = r.0.values().fold(r.1, |g, a| gcd(g, *a));
+        if g > 1 {
+            for a in r.0.values_mut() {
+                *a /= g;
+            }
+            r.1 /= g;
+        }
+        return r;
+    }
+    if r.2 {
+        r = (r.0, r.1 + 1, false);
+    }
     let g = r.0.values().fold(0, |g, a| gcd(g, *a));
     if g > 1 {
         for a in r.0.values_mut() {
@@ -337,7 +354,7 @@ fn tighten(mut r: Row) -> Row {
 }
 
 // Wiersz całkowity z literału: mnoży przez wspólny mianownik, a Money zamienia na grosze.
-fn row(e: &Lin, vars: &BTreeMap<String, Num>, strict: bool) -> Row {
+fn row(e: &Lin, vars: &BTreeMap<String, Num>, strict: bool, dec: &BTreeSet<String>) -> Row {
     let mut coefs: Vec<(String, Rat)> = vec![];
     for (k, v) in &e.terms {
         let s = if vars.get(k) == Some(&Num::Money) { Rat(1, 100) } else { Rat::int(1) };
@@ -352,8 +369,7 @@ fn row(e: &Lin, vars: &BTreeMap<String, Num>, strict: bool) -> Row {
         m.insert(k, r.0 * (l / r.1));
     }
     let c = e.c.0 * (l / e.c.1);
-    // Σ < 0 na liczbach całkowitych to Σ + 1 <= 0.
-    tighten((m, if strict { c + 1 } else { c }))
+    tighten((m, c, strict), dec)
 }
 
 enum Fm {
@@ -364,7 +380,7 @@ enum Fm {
 
 const MAX_ROWS: usize = 4000;
 
-fn fm(rows: Vec<Row>, order: &[String]) -> Fm {
+fn fm(rows: Vec<Row>, order: &[String], dec: &BTreeSet<String>) -> Fm {
     let mut stages: Vec<Vec<Row>> = vec![];
     let mut cur = rows;
     for v in order {
@@ -389,7 +405,7 @@ fn fm(rows: Vec<Row>, order: &[String]) -> Fm {
                     *m.entry(k.clone()).or_insert(0) += a * ap;
                 }
                 m.retain(|_, a| *a != 0);
-                rest.push(tighten((m, p.1 * an + n.1 * ap)));
+                rest.push(tighten((m, p.1 * an + n.1 * ap, p.2 || n.2), dec));
             }
         }
         rest.sort();
@@ -399,8 +415,11 @@ fn fm(rows: Vec<Row>, order: &[String]) -> Fm {
         }
         cur = rest;
     }
-    if cur.iter().any(|r| r.0.is_empty() && r.1 > 0) {
+    if cur.iter().any(|r| r.0.is_empty() && (r.1 > 0 || r.1 == 0 && r.2)) {
         return Fm::Unsat;
+    }
+    if !dec.is_empty() {
+        return Fm::GiveUp;
     }
     // Od ostatniej zmiennej: przedział z wierszy etapu, na którym ją eliminowano,
     // i wartość najbliższa zera, czyli zwykle granica, którą nowy warunek przesunął.
@@ -444,7 +463,7 @@ fn fm(rows: Vec<Row>, order: &[String]) -> Fm {
 
 fn show(v: i128, n: Num) -> String {
     match n {
-        Num::Int => v.to_string(),
+        Num::Int | Num::Dec => v.to_string(),
         Num::Money if v % 100 == 0 => (v / 100).to_string(),
         Num::Money => format!("{}{}.{:02}", if v < 0 { "-" } else { "" }, (v / 100).abs(), (v % 100).abs()),
     }
@@ -537,6 +556,7 @@ fn solve_conj(lits: &[Lit], vars: &BTreeMap<String, Num>, nonneg: &BTreeSet<Stri
         .collect();
     // Eliminacja od końca alfabetu, więc α zostaje na koniec i dostaje wartość najbliższą granicy.
     let order: Vec<String> = used.iter().rev().cloned().collect();
+    let dec: BTreeSet<String> = used.iter().filter(|k| vars.get(*k) == Some(&Num::Dec)).cloned().collect();
     let mut gave_up = false;
     for mask in 0..(1u32 << nes.len()) {
         let mut rows = vec![];
@@ -544,15 +564,15 @@ fn solve_conj(lits: &[Lit], vars: &BTreeMap<String, Num>, nonneg: &BTreeSet<Stri
         for l in &cmps {
             let Lit::Cmp(e, rel) = l else { continue };
             match rel {
-                Rel::Le => rows.push(row(e, vars, false)),
-                Rel::Lt => rows.push(row(e, vars, true)),
+                Rel::Le => rows.push(row(e, vars, false, &dec)),
+                Rel::Lt => rows.push(row(e, vars, true, &dec)),
                 Rel::Eq => {
-                    rows.push(row(e, vars, false));
-                    rows.push(row(&e.clone().scale(Rat::int(-1)), vars, false));
+                    rows.push(row(e, vars, false, &dec));
+                    rows.push(row(&e.clone().scale(Rat::int(-1)), vars, false, &dec));
                 }
                 Rel::Ne => {
                     let e = if mask & (1 << ni) == 0 { e.clone() } else { e.clone().scale(Rat::int(-1)) };
-                    rows.push(row(&e, vars, true));
+                    rows.push(row(&e, vars, true, &dec));
                     ni += 1;
                 }
             }
@@ -560,9 +580,9 @@ fn solve_conj(lits: &[Lit], vars: &BTreeMap<String, Num>, nonneg: &BTreeSet<Stri
         for v in nonneg.iter().filter(|v| used.contains(*v)) {
             let mut m = BTreeMap::new();
             m.insert(v.clone(), -1);
-            rows.push((m, 0));
+            rows.push((m, 0, false));
         }
-        match fm(rows, &order) {
+        match fm(rows, &order, &dec) {
             Fm::Unsat => continue,
             Fm::GiveUp => gave_up = true,
             Fm::Sat(model) => {

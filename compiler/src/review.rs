@@ -15,7 +15,7 @@ use crate::solver::{self, Num, Verdict};
 use crate::toml::{Entry, Value};
 use crate::{docslock, plural};
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -95,46 +95,12 @@ impl<'a> Side<'a> {
         m
     }
 
-    // Zawężenie albo inna nazwa typu (`type Percent = Int(...)`), a nie unia ani rekord.
     fn is_refine(&self, t: &TypeExpr) -> bool {
-        match t {
-            TypeExpr::Name {
-                name, fields: None, cond, ..
-            } if self.env.is_type(name) => cond.is_some() || self.env.leaves(t) == [name.clone()],
-            _ => false,
-        }
+        self.env.is_refine(t)
     }
 
-    // Typ bazowy po rozwinięciu nazw i warunki ze wszystkich poziomów, z parametrem α.
     fn flatten(&self, t: &TypeExpr) -> (String, Vec<Expr>) {
-        self.flatten_in(t, 0)
-    }
-
-    fn flatten_in(&self, t: &TypeExpr, depth: usize) -> (String, Vec<Expr>) {
-        let TypeExpr::Name { name, args, cond, .. } = t else {
-            return (t.to_string(), vec![]);
-        };
-        let own: Vec<Expr> = cond.iter().map(|c| rename(&c.expr, &c.param)).collect();
-        if let Some((
-            TypeDecl {
-                body: TypeBody::Rhs(ts), ..
-            },
-            _,
-        )) = self.env.types.get(name)
-        {
-            if ts.len() == 1 && self.is_refine(&ts[0]) && depth < 20 {
-                let (b, mut cs) = self.flatten_in(&ts[0], depth + 1);
-                cs.extend(own);
-                return (b, cs);
-            }
-        }
-        let base = if args.is_empty() {
-            name.clone()
-        } else {
-            let a: Vec<String> = args.iter().map(|x| x.to_string()).collect();
-            format!("{}<{}>", name, a.join(", "))
-        };
-        (base, own)
+        self.env.flatten(t)
     }
 
     fn field_ty(&self, rec: &str, field: &str) -> Option<TypeExpr> {
@@ -253,53 +219,6 @@ impl<'a> Side<'a> {
 }
 
 // Warunek z nazwanym parametrem (`x => x > 0`) zamienia na α.
-fn rename(e: &Expr, from: &str) -> Expr {
-    if from == "α" {
-        return e.clone();
-    }
-    let r = |x: &Expr| Box::new(rename(x, from));
-    let args = |a: &[Arg]| -> Vec<Arg> {
-        a.iter()
-            .map(|a| Arg {
-                name: a.name.clone(),
-                value: rename(&a.value, from),
-            })
-            .collect()
-    };
-    let kind = match &e.kind {
-        ExprKind::Ident(n) if n == from => ExprKind::Ident("α".into()),
-        ExprKind::Field { obj, name } => ExprKind::Field {
-            obj: r(obj),
-            name: name.clone(),
-        },
-        ExprKind::Call { name, args: a } => ExprKind::Call {
-            name: name.clone(),
-            args: args(a),
-        },
-        ExprKind::Method { obj, name, targs, args: a } => ExprKind::Method {
-            obj: r(obj),
-            name: name.clone(),
-            targs: targs.clone(),
-            args: args(a),
-        },
-        ExprKind::Bin { op, l, r: rr } => ExprKind::Bin {
-            op,
-            l: r(l),
-            r: r(rr),
-        },
-        ExprKind::Not(x) => ExprKind::Not(r(x)),
-        ExprKind::Neg(x) => ExprKind::Neg(r(x)),
-        ExprKind::List(v) => ExprKind::List(v.iter().map(|x| rename(x, from)).collect()),
-        ExprKind::Is { e: x, ty, neg } => ExprKind::Is {
-            e: r(x),
-            ty: ty.clone(),
-            neg: *neg,
-        },
-        k => k.clone(),
-    };
-    Expr { kind, line: e.line }
-}
-
 enum TyCmp {
     Same,
     Stricter,
@@ -883,6 +802,22 @@ impl<'a> Rv<'a> {
     // ---------- impl/ ----------
 
     // (zmienione pliki, zmienione linie, pliki z właścicielem w CODEOWNERS i ich zmienione linie)
+    // Funkcje z ciałem w plikach impl/, których plik impl/ (a ze `spec` także plik src/)
+    // zmienił się od bazy.
+    fn changed_fns(&self, spec: bool) -> HashSet<String> {
+        let changed = |path: &str| {
+            let text = |s: &Side| if s.p.files.iter().any(|f| f.path == path) { s.lines(path) } else { vec![] };
+            changed_lines(&text(&self.old), &text(&self.new)) > 0
+        };
+        self.new
+            .env
+            .fns
+            .iter()
+            .filter(|(n, i)| i.body().is_some() && *n != "main" && (changed(&i.imp.unwrap().1.path) || spec && i.spec.is_some_and(|(_, f)| changed(&f.path))))
+            .map(|(n, _)| n.clone())
+            .collect()
+    }
+
     fn impl_stats(&self) -> (usize, usize, Vec<(String, usize)>) {
         let mut paths: BTreeSet<String> = BTreeSet::new();
         for s in [&self.old, &self.new] {
@@ -1056,14 +991,38 @@ fn pad(s: &str, w: usize) -> String {
     format!("{}{}", s, " ".repeat(w.saturating_sub(n)))
 }
 
-pub fn review(p: &Project, env: &Env, reference: &str) -> Result<String, String> {
+pub fn review(p: &Project, env: &Env, reference: &str, mutate: bool) -> Result<String, String> {
     let tmp = std::env::temp_dir().join(format!("sowa-review-{}", std::process::id()));
-    let res = load_base(&p.root, reference, &tmp).map(|base| report(p, env, base));
+    let res = load_base(&p.root, reference, &tmp).map(|base| report(p, env, base, mutate));
     let _ = std::fs::remove_dir_all(&tmp);
     res
 }
 
-fn report(p: &Project, env: &Env, base: Option<Project>) -> String {
+// `warunki wyniku: 3 udowodnione, 1 sprawdzany w runtime (line_net)` dla zmienionych funkcji
+// z warunkiem w typie wyniku. Warunek bez dowodu sprawdza runtime przy każdym return.
+fn proofs(env: &Env, fns: &HashSet<String>) -> String {
+    let mut fns: Vec<&String> = fns.iter().collect();
+    fns.sort();
+    let res: Vec<(&String, bool)> = fns.into_iter().filter_map(|f| crate::prove::prove(env, f).map(|ok| (f, ok))).collect();
+    if res.is_empty() {
+        return String::new();
+    }
+    let open: Vec<&str> = res.iter().filter(|(_, ok)| !ok).map(|(f, _)| f.as_str()).collect();
+    let mut parts = vec![];
+    if open.len() < res.len() {
+        parts.push(plural(res.len() - open.len(), "udowodniony", "udowodnione", "udowodnionych"));
+    }
+    if !open.is_empty() {
+        parts.push(format!(
+            "{} w runtime ({})",
+            plural(open.len(), "sprawdzany", "sprawdzane", "sprawdzanych"),
+            open.join(", ")
+        ));
+    }
+    format!("      warunki wyniku: {}\n", parts.join(", "))
+}
+
+fn report(p: &Project, env: &Env, base: Option<Project>, mutate: bool) -> String {
     let fresh = base.is_none();
     let base = base.unwrap_or_else(|| empty_project(p));
     let benv = Env::build(&base.files);
@@ -1176,6 +1135,18 @@ fn report(p: &Project, env: &Env, base: Option<Project>) -> String {
         o.push_str(&format!("      do przeczytania (CODEOWNERS): {}\n", list.join(", ")));
         if owned.len() < files {
             o.push_str("      reszta nie wymaga przeglądu\n");
+        }
+    }
+    o.push_str(&proofs(env, &rv.changed_fns(true)));
+    if mutate {
+        let fns = rv.changed_fns(false);
+        if fns.is_empty() {
+            o.push_str("      mutacje: zmiany nie dotykają ciał funkcji\n");
+        } else {
+            match crate::mutate::run(p, env, fns) {
+                Ok(r) => o.push_str(&format!("      {}", crate::mutate::text(&r, "      "))),
+                Err(e) => o.push_str(&format!("      mutacje: {}\n", e.lines().last().unwrap_or(""))),
+            }
         }
     }
 

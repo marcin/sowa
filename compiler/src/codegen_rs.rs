@@ -243,6 +243,38 @@ pub struct Gen<'a> {
     ref_lets: HashSet<usize>,
     // Funkcje k_N według typu.
     checks: HashMap<String, Option<String>>,
+    // Testy mutacyjne: funkcje, których ciała dostają mutanty (pusty zbiór = wszystkie poza main
+    // i atrapami), i mutanty w kolejności numerów. Mutant K działa, gdy SOWA_MUTANT=K.
+    pub mutate: Option<HashSet<String>>,
+    pub mutants: Vec<Mutant>,
+    mut_on: bool,
+    fakes: HashSet<String>,
+}
+
+pub struct Mutant {
+    pub file: String,
+    pub line: usize,
+    pub fname: String,
+    pub desc: String,
+}
+
+// Operator, na który mutant zamienia op.
+fn mutated_op(op: &str) -> Option<&'static str> {
+    Some(match op {
+        "+" => "-",
+        "-" => "+",
+        "*" => "/",
+        "/" => "*",
+        "<" => "<=",
+        "<=" => "<",
+        ">" => ">=",
+        ">=" => ">",
+        "==" => "!=",
+        "!=" => "==",
+        "&&" => "||",
+        "||" => "&&",
+        _ => return None,
+    })
 }
 
 fn wrap(pre: String, e: String) -> String {
@@ -328,7 +360,27 @@ impl<'a> Gen<'a> {
             borrowed: HashMap::new(),
             ref_lets: HashSet::new(),
             checks: HashMap::new(),
+            mutate: None,
+            mutants: vec![],
+            mut_on: false,
+            fakes: HashSet::new(),
         }
+    }
+
+    // `(if mu(K) { alt } else { orig })` w ciele funkcji objętej mutacjami. Kod obu gałęzi jest
+    // pełny, więc zagnieżdżone mutanty podwajają tekst: przy długim kodzie mutantu nie ma.
+    fn mutant(&mut self, orig: String, alt: String, line: usize, cx: &Cx, desc: String) -> String {
+        if !self.mut_on || orig.len() + alt.len() > 4000 {
+            return orig;
+        }
+        let k = self.mutants.len();
+        self.mutants.push(Mutant {
+            file: cx.file.clone(),
+            line,
+            fname: cx.fname.clone(),
+            desc,
+        });
+        format!("(if mu({}) {{ {} }} else {{ {} }})", k, alt, orig)
     }
 
     // Stała liczona raz na wątek.
@@ -407,6 +459,7 @@ impl<'a> Gen<'a> {
                 }
             }
         }
+        self.fakes = fakes.clone();
         // Rekord, który zawiera sam siebie wprost (nie przez listę), zostaje dynamiczny.
         let mut cand: BTreeMap<String, &'a Vec<Field>> = BTreeMap::new();
         for (name, (t, _)) in &env.types {
@@ -503,7 +556,11 @@ impl<'a> Gen<'a> {
 
     // Funkcja k_N sprawdzająca warunki typu t na wartości typu rt; None, gdy nie ma czego sprawdzać.
     fn check_fn(&mut self, t: &TypeExpr, rt: &Rt) -> Option<String> {
-        self.check_fn_d(t, rt, 0)
+        // Warunki typów to specyfikacja, a nie kod: bez mutantów.
+        let on = std::mem::replace(&mut self.mut_on, false);
+        let r = self.check_fn_d(t, rt, 0);
+        self.mut_on = on;
+        r
     }
 
     fn check_fn_d(&mut self, t: &TypeExpr, rt: &Rt, depth: usize) -> Option<String> {
@@ -586,7 +643,9 @@ impl<'a> Gen<'a> {
 
     fn ty(&mut self, t: &TypeExpr, cx: &mut Cx) -> String {
         cx.caps.push(HashSet::new());
+        let on = std::mem::replace(&mut self.mut_on, false);
         let raw = self.ty_raw(t, cx);
+        self.mut_on = on;
         let caps = cx.pop_caps();
         if caps.is_empty() { self.konst("T", raw) } else { raw }
     }
@@ -735,6 +794,8 @@ impl<'a> Gen<'a> {
                 .collect();
             writeln!(out, "fn f_{}({}) -> Result<{}, Ctl> {{", ident(name), params.join(", "), ret.rs()).unwrap();
             let path = f.path.clone();
+            let mutate = self.mutate.as_ref().is_some_and(|m| m.is_empty() || m.contains(name)) && name != "main" && !self.fakes.contains(name);
+            let start = self.mutants.len();
             let mk = || {
                 let mut cx = Cx::new(&path, Ret::Conform);
                 cx.fname = name.clone();
@@ -772,7 +833,11 @@ impl<'a> Gen<'a> {
                     writeln!(o, "    let rt: T = {};", t).unwrap();
                     writeln!(o, "    let rtn: &str = {};", q(&format!("{}: wynik", name))).unwrap();
                 }
+                // Każdy przebieg infer generuje ciało od nowa, więc i mutanty numeruje od nowa.
+                g.mutants.truncate(start);
+                g.mut_on = mutate;
                 g.block(body, cx, &mut o, 1);
+                g.mut_on = false;
                 if ret.dynamic() {
                     o.push_str("    Ok(V::Unit)\n");
                 } else {
@@ -1252,10 +1317,16 @@ impl<'a> Gen<'a> {
 
     fn ex_plain(&mut self, e: &Expr, cx: &mut Cx) -> (String, Rt) {
         match &e.kind {
-            ExprKind::Int(n) => (format!("{}i64", n), Rt::Int),
+            ExprKind::Int(n) => {
+                let c = format!("{}i64", n);
+                match n.checked_add(1) {
+                    Some(m) if self.mut_on => (self.mutant(c, format!("{}i64", m), e.line, cx, format!("{} → {}", n, m)), Rt::Int),
+                    _ => (c, Rt::Int),
+                }
+            }
             ExprKind::Dec(s) => (self.konst("V", format!("dec_lit({})", q(s))), Rt::Dyn),
             ExprKind::Str(s) => (self.konst("Rc<str>", format!("Rc::from({})", q(s))), Rt::Str),
-            ExprKind::Bool(b) => (format!("{}", b), Rt::Bool),
+            ExprKind::Bool(b) => (self.mutant(b.to_string(), (!b).to_string(), e.line, cx, format!("{} → {}", b, !b)), Rt::Bool),
             ExprKind::Html(segs) => {
                 let h = format!("h{}", cx.tmp());
                 let mut out = format!("{{ let mut {} = String::new(); ", h);
@@ -1331,10 +1402,11 @@ impl<'a> Gen<'a> {
                 }
                 (format!("field({}, {})?", coerce(o, &rt, &Rt::Dyn), q(name)), Rt::Dyn)
             }
-            ExprKind::Bin { op, l, r } => self.bin(op, l, r, cx),
+            ExprKind::Bin { op, l, r } => self.bin(op, l, r, e.line, cx),
             ExprKind::Not(x) => {
                 let (c, t) = self.ex(x, cx);
-                (format!("(!{})", bool_code(c, &t)), Rt::Bool)
+                let b = bool_code(c, &t);
+                (self.mutant(format!("(!{})", b), b, e.line, cx, format!("{} → {}", e, x)), Rt::Bool)
             }
             ExprKind::Neg(x) => {
                 let (c, t) = self.ex(x, cx);
@@ -1605,7 +1677,7 @@ impl<'a> Gen<'a> {
         (clones(&caps), clo, r)
     }
 
-    fn bin(&mut self, op: &str, l: &Expr, r: &Expr, cx: &mut Cx) -> (String, Rt) {
+    fn bin(&mut self, op: &str, l: &Expr, r: &Expr, line: usize, cx: &mut Cx) -> (String, Rt) {
         let (mut a, at) = self.ex(l, cx);
         // Lewa zmienna czytana przez referencję, a prawa strona ją przenosi: najpierw wartość.
         let mut pre = String::new();
@@ -1617,6 +1689,19 @@ impl<'a> Gen<'a> {
             }
         }
         let (b, bt) = self.ex(r, cx);
+        let (mut code, rt) = Self::bin_code(op, l, r, a.clone(), &at, b.clone(), &bt);
+        if let Some(alt) = mutated_op(op).filter(|_| self.mut_on) {
+            let (ac, art) = Self::bin_code(alt, l, r, a, &at, b, &bt);
+            if art == rt {
+                code = self.mutant(code, ac, line, cx, format!("{} → {}", op, alt));
+            }
+        }
+        (wrap(pre, code), rt)
+    }
+
+    // Kod działania op na policzonych już argumentach a (typu at) i b (typu bt).
+    fn bin_code(op: &str, l: &Expr, r: &Expr, a: String, at: &Rt, b: String, bt: &Rt) -> (String, Rt) {
+        let (at, bt) = (at.clone(), bt.clone());
         let dyn2 = |a: String, b: String| (coerce(a, &at, &Rt::Dyn), coerce(b, &bt, &Rt::Dyn));
         let (code, rt) = match op {
             "+" => match (&at, &bt) {
@@ -1686,7 +1771,7 @@ impl<'a> Gen<'a> {
             "&&" | "||" => (format!("({} {} {})", bool_code(a, &at), op, bool_code(b, &bt)), Rt::Bool),
             _ => unreachable!(),
         };
-        (wrap(pre, code), rt)
+        (code, rt)
     }
 
     // Lista argumentów. Gdy któraś zmienna jest przenoszona albo argumenty nazwane zmieniają

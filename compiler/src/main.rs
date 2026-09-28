@@ -1,4 +1,4 @@
-// sowa check [--ci] | build | run [--fake NAZWA] | test | review --base REF | review --approve
+// sowa check [--ci] | build | run [--fake NAZWA] | test [--mutate] | review --base REF [--mutate] | review --approve
 //   [--bun] [--panic-abort] [KATALOG]
 //
 // Kompilator czyta projekt (sowa.toml, src/, impl/, docs/), sprawdza go, tłumaczy program albo
@@ -15,8 +15,10 @@ mod docslock;
 mod env;
 mod lexer;
 mod moves;
+mod mutate;
 mod parser;
 mod project;
+mod prove;
 mod review;
 mod sign;
 mod solver;
@@ -33,8 +35,11 @@ polecenia:
   build                 sprawdza i kompiluje program do .sowa/app_rs (z --bun: .sowa/app.js)
   run [--fake ZASÓB]    buduje i uruchamia program; --fake podmienia zasób na ten z [resources.test]
   test                  uruchamia przykłady, property i bloki sowa z docs/
+  test --mutate         po testach sprawdza, czy wykrywają drobne zmiany w kodzie z impl/
+                        (+ na -, < na <=, n na n+1 itd.) i pokazuje zmiany, których nie wykrywają
   review --base REF     zmiany w specyfikacji względem REF (gałęzi albo commitu), od najbardziej
-                        ryzykownej: uprawnienie, osłabienie, usunięty test, rozszerzenie, zwykłe
+                        ryzykownej: uprawnienie, osłabienie, usunięty test, rozszerzenie, zwykłe;
+                        z --mutate także testy mutacyjne funkcji ze zmienionych plików impl/
   review --confirm-docs[=OPIS]
                         zapisuje w docs.lock, że opisy (wszystkie oczekujące albo OPIS, np.
                         uzytkownik/faktury.md#rabat) są przejrzane przy bieżących sygnaturach
@@ -86,6 +91,7 @@ fn main() -> ExitCode {
             }
             "--ci" => o.ci = true,
             "--approve" => o.approve = true,
+            "--mutate" => o.mutate = true,
             "--fake" if i + 1 < args.len() => {
                 fakes.push(args[i + 1].clone());
                 i += 2;
@@ -136,6 +142,10 @@ fn main() -> ExitCode {
         eprintln!("sowa review potrzebuje jednej z opcji: --base REF, --confirm-docs albo --approve\n\n{}", USAGE);
         return ExitCode::from(2);
     }
+    if o.mutate && !(cmd == "test" && rust || o.base.is_some()) {
+        eprintln!("--mutate działa z sowa test (bez --bun) i z sowa review --base REF");
+        return ExitCode::from(2);
+    }
     if panic_abort && !rust {
         eprintln!("--panic-abort nie działa z --bun");
         return ExitCode::from(2);
@@ -163,6 +173,7 @@ struct Opts {
     ci: bool,
     approved_at: Option<String>,
     approve: bool,
+    mutate: bool,
 }
 
 fn run(cmd: &str, dir: &Path, fakes: &[String], rust: bool, panic_abort: bool, o: &Opts) -> Result<ExitCode, String> {
@@ -219,6 +230,12 @@ fn run(cmd: &str, dir: &Path, fakes: &[String], rust: bool, panic_abort: bool, o
 
     let out_dir = root.join(".sowa");
     std::fs::create_dir_all(&out_dir).map_err(|e| format!("{}: {}", out_dir.display(), e))?;
+    if cmd == "test" && o.mutate {
+        let r = mutate::run(&proj, &env, Default::default())?;
+        print!("{}", r.baseline);
+        print!("{}", mutate::text(&r, "  "));
+        return Ok(ExitCode::SUCCESS);
+    }
     if rust {
         let (name, program) = if cmd == "test" {
             ("test_rs", codegen_rs::Gen::new(&env).tests_program(&proj, &test_res))
@@ -269,7 +286,7 @@ fn run(cmd: &str, dir: &Path, fakes: &[String], rust: bool, panic_abort: bool, o
 
 fn review(proj: &project::Project, env: &env::Env, o: &Opts) -> Result<ExitCode, String> {
     if let Some(base) = &o.base {
-        print!("{}", review::review(proj, env, base)?);
+        print!("{}", review::review(proj, env, base, o.mutate)?);
         return Ok(ExitCode::SUCCESS);
     }
     if o.approve {

@@ -3151,10 +3151,22 @@ pub fn run_main(main: fn(&Res) -> R, spec: Vec<(&'static str, Spec)>) {
     }
 }
 
+// Testy mutacyjne (sowa test --mutate): mutant K działa, gdy SOWA_MUTANT=K.
+#[inline]
+pub fn mu(k: usize) -> bool {
+    static M: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *M.get_or_init(|| std::env::var("SOWA_MUTANT").ok().and_then(|s| s.parse().ok()).unwrap_or(usize::MAX)) == k
+}
+
 pub fn run_tests(tests: Vec<Test>, spec: Vec<(&'static str, Spec)>) {
     let (mut ex, mut pr, mut doc) = (0, 0, 0);
     let mut failed: Vec<String> = vec![];
+    let mutant = std::env::var_os("SOWA_MUTANT").is_some();
     for t in &tests {
+        // Mutant jest wykryty po pierwszym błędzie, dalszych testów nie trzeba.
+        if mutant && !failed.is_empty() {
+            std::process::exit(1);
+        }
         let wher = format!("{}:{}", t.file, t.line);
         if t.kind == "property" {
             let mut g = Rng(hash(&wher));

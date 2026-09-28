@@ -1,6 +1,6 @@
 # PR: fakturownia_web
 
-Przykład, jak wygląda PR, w którym agent AI napisał całą aplikację, a człowiek ją zatwierdza. Wynik `sowa review` niżej pochodzi z kompilatora z [compiler/](../../compiler), a numery linii zgadzają się z plikami w tym katalogu. Dowodzenia warunków wyniku i testów mutacyjnych kompilator jeszcze nie ma, więc w wyniku ich nie ma.
+Przykład, jak wygląda PR, w którym agent AI napisał całą aplikację, a człowiek ją zatwierdza. Wynik `sowa review` niżej pochodzi z kompilatora z [compiler/](../../compiler), a numery linii zgadzają się z plikami w tym katalogu.
 
 ## Zadanie dla agenta
 
@@ -21,7 +21,7 @@ Przykład, jak wygląda PR, w którym agent AI napisał całą aplikację, a cz�
 Prawdziwy wynik kompilatora dla PR, który dodaje ten katalog, przy pustym `docs.lock` (`main` bez projektu). W katalogu `docs.lock` jest już wypełniony, czyli taki, jaki zostaje po przejrzeniu opisów.
 
 ```
-$ sowa review --base main
+$ sowa review --base main --mutate
 
 Specyfikacja (src/, docs/, sowa.toml): nowy projekt, 19 zmian, reszta zwykła
 
@@ -56,6 +56,21 @@ Specyfikacja (src/, docs/, sowa.toml): nowy projekt, 19 zmian, reszta zwykła
 Kod (impl/): 8 plików, 313 linii.
       do przeczytania (CODEOWNERS): impl/ksef_fake.sowa (12 linii), impl/storage.sowa (40 linii)
       reszta nie wymaga przeglądu
+      warunki wyniku: 10 udowodnionych, 3 sprawdzane w runtime (format_number, line_net, save_new_invoice)
+      mutacje wykryte przez testy: 23 z 35
+      przeżyły, bo żaden test ich nie wykrywa:
+        impl/invoice.sowa:5   line_net: 2 → 3
+        impl/invoice.sowa:13  totals: 2 → 3
+        impl/issuing.sowa:32  issue_invoice: 1 → 2
+        impl/issuing.sowa:36  issue_invoice: 1 → 2
+        impl/issuing.sowa:36  issue_invoice: + → -
+        impl/storage.sowa:27  next_seq: 1 → 2
+        impl/storage.sowa:27  next_seq: + → -
+        impl/types.sowa:4     vat_percent: 8 → 9
+        impl/types.sowa:5     vat_percent: 5 → 6
+        impl/web.sowa:86      form_page: 0 → 1
+        impl/web.sowa:89      form_page: 1 → 2
+        impl/web.sowa:89      form_page: + → -
 
 Opisy do przejrzenia (docs.lock):
       decyzje/001-ksef-osobnym-krokiem.md: cały plik, #001-wysyłka-do-ksef-jest-osobnym-krokiem, #decyzja, #dlaczego, #konsekwencje
@@ -74,7 +89,8 @@ Najpierw uruchamia aplikację (`sowa run --fake ksef examples/fakturownia_web`, 
 3. **Kto ma `Db`, a kto `DbRead` [5]–[16].** Strony, które tylko pokazują (`get_list`, `get_invoice`), nie zapiszą niczego.
 4. **Atrapa [19].** Czyta 12 linii `impl/ksef_fake.sowa` i potwierdza założenie z decyzji 002 albo je odrzuca. Tego żaden solver nie rozstrzygnie, bo dotyczy cudzego serwera.
 5. **Numeracja.** Czyta `impl/storage.sowa`: licznik i faktura w jednej transakcji.
-6. **Opisy.** Czyta sekcje z listy, a potem uruchamia `sowa review --confirm-docs`. Polecenie zapisuje w `docs.lock` bieżące hashe z jego adresem z `git config user.email`. Commit z `docs.lock` idzie do tego samego PR.
+6. **Mutacje.** Nie czyta kodu, tylko listę mutantów, które przeżyły. `vat_percent: 8 → 9` znaczy, że żaden przykład nie liczy stawki 8% ani 5% (w `src/types.sowa` są tylko 23% i 0%). `next_seq: 1 → 2` w linii 27 znaczy, że żaden test nie wystawia dwóch faktur po kolei, więc skok numeru o 2 przeszedłby niezauważony. Takie luki człowiek odsyła agentowi jako brakujące `example` w `src/`. Warunki wyniku bez dowodu (`format_number`, `line_net`, `save_new_invoice`) sprawdza runtime i `property`.
+7. **Opisy.** Czyta sekcje z listy, a potem uruchamia `sowa review --confirm-docs`. Polecenie zapisuje w `docs.lock` bieżące hashe z jego adresem z `git config user.email`. Commit z `docs.lock` idzie do tego samego PR.
 
 Osłabień i rozszerzeń nie ma, bo projekt jest nowy: nie ma starego warunku, z którym można by porównać. Kodu w `impl/web.sowa`, `impl/issuing.sowa` i pozostałych człowiek nie czyta. Pilnują go typy w `src/`, przykłady i `property`.
 
