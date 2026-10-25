@@ -352,6 +352,46 @@ Backend TS ma powstać pierwszy, więc przez jakiś czas tryb `--sandbox` da tyl
 
 Dodatkowa zaleta: kod bez `Clock` i `Random` jest deterministyczny. Wynik można cache'ować, a zgłoszony błąd odtworzyć na tych samych danych.
 
+## Wydajność: co wziąć z Goose
+
+[Goose](https://aardappel.github.io/goose/) (Wouter van Oortmerssen, [dyskusja na HN](https://news.ycombinator.com/item?id=50224100)) kompiluje się do C i jest bezpieczny pamięciowo. Według autora jest ok. 1,25 raza szybszy od ręcznie optymalizowanego C++ i ok. 1,15 raza od najlepszego bezpiecznego Rusta, a zużywa 1,2–1,9 raza mniej pamięci. To pomiary autora na 16 programach. Zoptymalizowanych wersji C++ i Rusta nie opublikował, więc nie da się ich sprawdzić.
+
+Skąd według autora ten wynik:
+
+- **Nie ma sterty.** Każda rosnąca tablica ma własny stos danych: dużą rezerwację przestrzeni adresowej i wskaźnik na koniec. Wzrost niczego nie przenosi, wskaźniki do elementów się nie unieważniają, a zwolnienie całej struktury to jeden zapis.
+- **Dane zagnieżdżone leżą w jednym bloku**, bez wskaźników. Odnośniki to przesunięcia o 1, 2 albo 4 bajtach zamiast 8-bajtowych wskaźników.
+- **Wątki nie współdzielą pamięci.** Każdy wątek ma własne stosy, a wartości przechodzą przez typowane kolejki jednym `memcpy`. Nie ma blokad ani operacji atomowych.
+- **Sprawdzenia granic tablic znikają, gdy kompilator udowodni, że są zbędne.** `--bce-lines` pokazuje, które zostały, a `checkfree fn` odrzuca funkcję, w której zostało choć jedno.
+- **Dwie drogi kompilacji.** W pracy libtcc: kompilacja natychmiast, program ok. 3 razy wolniejszy. Na wydanie kompilator C z optymalizacją.
+
+Sowa ma być językiem ogólnego przeznaczenia, a faktury są tylko przykładem. Szybkość liczy się więc także poza aplikacjami webowymi. Niżej: co z Goose pasuje do Sowy, w proponowanej kolejności. Żadna z tych zmian nie jest zrobiona ani zmierzona.
+
+| # | Pomysł | Gdzie w Sowie | Uwagi |
+|---|---|---|---|
+| 1 | **Typy Rusta zamiast `V` dla `Money`, dat, wariantów i unii** | `codegen_rs.rs`, `runtime.rs` | ta sama zasada co w Goose: dane znane w kompilacji, bez sprawdzania typu w runtime; warianty jako `enum`, data jako liczba dni; `Money` zależy od [otwartego pytania](#otwarte-pytania) o decimal; dotyczy każdego programu |
+| 2 | **Krótkie teksty bez alokacji** | `runtime.rs` | dziś `String` to `Rc<str>`, czyli alokacja na każdy tekst; krótkie teksty (np. do 23 bajtów) w samej wartości, dłuższe w `Rc<str>`; w C++ to znana optymalizacja (SSO) |
+| 3 | **Usuwanie sprawdzeń indeksów** | `prove.rs`, `codegen_rs.rs`, `review.rs` | `at(lista, i)` z `i: Int(α >= 0 && α < len(lista))` nie potrzebuje sprawdzenia; generator wstawia dostęp bez sprawdzenia tylko tam, gdzie solver to udowodnił; `sowa review` pokazuje, które sprawdzenia zostały, jak `--bce-lines`; usunięte sprawdzenie w pętli pozwala LLVM ją zwektoryzować |
+| 4 | **Wątki bez współdzielonej pamięci** | język, `runtime.rs` | dziś `Rc`, więc jeden wątek; szczegóły niżej |
+| 5 | **Strefy pamięci wykrywane przez kompilator** | `moves.rs`, `codegen_rs.rs` | wartości w Sowie nie mają referencji, a `moves.rs` zna ostatnie użycie; tam, gdzie kompilator udowodni, że wszystko utworzone w funkcji albo pętli umiera na jej końcu, zwalnia to jednym ruchem, jak stos w Goose; wszędzie indziej zostaje liczenie referencji |
+| 6 | **Backend C: tcc w pracy, clang na wydanie** | nowy generator i runtime w C | już w [kompilacja.md](kompilacja.md#inne-możliwe-cele); Goose pokazuje, że to działa; pętla „zmiana → test” spadłaby z 3–6 s do dziesiątek ms, ale trzeba przepisać `runtime.rs`, więc najpierw Cranelift |
+
+### Wątki
+
+Model z Goose pasuje do Sowy lepiej niż do większości języków, bo Sowa ma już dwie potrzebne rzeczy: wartości są niezmienne, a zmiennych globalnych nie ma. Propozycja:
+
+- **Wątek to zwykła funkcja z uprawnieniami w sygnaturze.** Z `src/` widać, co wątek może zrobić, tak samo jak przy każdej innej funkcji.
+- **Kolejka to uprawnienie**, np. `jobs: Queue<Job>`. Nowa kolejka trafia w `sowa review` na górę listy, jak każde nowe uprawnienie.
+- **Wątki wymieniają tylko wartości.** Wyścigów danych nie ma z definicji, bez blokad i bez operacji atomowych w języku.
+- **Duże wartości bez kopiowania.** Goose kopiuje każdą wiadomość, bo jego dane są płaskie. Sowa może przenieść wartość przy ostatnim użyciu albo dzielić ją przez `Arc`, bo i tak nikt jej nie zmieni.
+
+To bliskie szkicowi `process InvoiceWorker` [niżej](#szkice-na-później). Do rozstrzygnięcia: czy `Rc` zamienić na `Arc` wszędzie, czy tylko dla wartości wysyłanych do innego wątku, i ile to kosztuje w jednym wątku.
+
+### Czego nie brać
+
+- **Stosów danych zamiast sterty.** Potrzebują 64-bitowej przestrzeni adresowej, w której pamięć przydziela się dopiero przy użyciu. WebAssembly tego nie ma (autor Goose potwierdza to na HN), więc odpadłaby [piaskownica dla kodu użytkowników](#backend), a razem z nią platformy 32-bitowe. Do tego stosy kolidują z liczeniem referencji i zmianą w miejscu, na których stoi szybkość backendu Rust. Strefy z punktu 5 biorą z tego pomysłu tylko to, co kompilator umie udowodnić.
+- **Analizy ucieczki referencji.** Goose pilnuje, żeby referencja nie przeżyła danych. W Sowie są tylko wartości, więc nie ma czego pilnować.
+- **Kopii przy każdej wiadomości.** Zob. [Wątki](#wątki).
+
 ## Szkice na później
 
 ```
@@ -411,6 +451,7 @@ Izolowane procesy z supervisorem. Stan `observable` jest odpytywalny na żywo.
   - zasoby dla bazy: `Db` zawężony do jednej tabeli?
   - czy `impl/` musi powtarzać sygnatury, czy wystarczy sama nazwa funkcji?
 - **Kompilacja:** kiedy własny backend zamiast TypeScriptu? Czy liczenie referencji wystarczy przy bibliotekach spoza Sowy, które mogą tworzyć cykle? Jaki domyślny limit pracy solvera? Po czym poznać, że język jest dość stabilny, żeby przepisać kompilator na Sowę? Czy etap 0 w Ruście utrzymywać dalej, np. do bootstrapu na nowej platformie?
+- **Wydajność:** propozycje z [Goose](#wydajność-co-wziąć-z-goose). Wątki: czy wątek to funkcja z uprawnieniami, a kolejka to uprawnienie `Queue<T>`? Przeniesienie, `Arc` czy kopia przy wysyłce? Strefy pamięci: na jakim zakresie (funkcja, pętla, obsługa zapytania) i czy kompilator ma je wykrywać sam, czy po wskazówce w kodzie?
 - **Aplikacja webowa:** luki z [próby](#aplikacja-webowa): `match` na listach i `_`, odczyt formularza i JSON, `html"..."`, `Server`, typy `HttpRequest` i `HttpResponse`, zapytania do bazy, sesje.
 - **Kod użytkowników:** czy kompilacja cudzego kodu Sowy na serwerze albo do WASM to osobny tryb kompilatora (bez `main`, bez `[resources]`, z limitami)? Czy pierwszy backend (TS) wystarczy do czasu WASM? Jakie domyślne limity fuel i pamięci? Czy użytkownik widzi błędy kompilatora po polsku? Zob. [Kod użytkowników](#kod-użytkowników).
 - **Z przykładu [ttfx_decrypt](../examples/ttfx_decrypt/)** (propozycje, kompilator już je obsługuje; szczegóły w [README](../examples/ttfx_decrypt/README.md#propozycje-do-decyzji)):
